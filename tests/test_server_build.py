@@ -17,6 +17,7 @@ def test_build_app():
         "mixer_set_volume", "mixer_set_eq_band", "mixer_route",
         "plugin_find_param", "plugin_list_mixer_track",
         "piano_roll_add_notes", "piano_roll_add_arpeggio", "piano_roll_humanize",
+        "piano_roll_clear", "piano_roll_read",
         "playlist_add_marker",
         "arrangement_select",
         "automation_record_tempo", "automation_record_plugin_param",
@@ -26,8 +27,24 @@ def test_build_app():
         "gen_emit_drum_pattern_notes", "gen_emit_drum_pattern_step_seq",
         "gen_emit_bassline", "gen_emit_melody", "gen_emit_arpeggio",
         "piano_roll_status",
+        # voice + audio tools (registered without their heavy deps installed)
+        "voice_to_piano_roll", "voice_notes_to_piano_roll", "voice_list_devices",
+        "audio_analyze", "audio_slice", "audio_melody_to_piano_roll",
+        "gen_emit_dnb_groove", "song_to_dnb_flip", "gen_list_dnb_styles",
     ]:
         assert required in names, f"missing tool: {required}"
+
+
+def test_piano_roll_tools_accept_channel_and_pattern():
+    """The piano-roll tools document channel/pattern routing — verify the params
+    actually exist on the registered tool schemas."""
+    from fl_studio_mcp.server import build_app
+    app = build_app()
+    tools = {t.name: t for t in app._tool_manager.list_tools()}
+    for name in ("piano_roll_add_notes", "piano_roll_clear", "piano_roll_quantize"):
+        props = tools[name].parameters.get("properties", {})
+        assert "channel" in props, f"{name} missing channel param"
+        assert "pattern" in props, f"{name} missing pattern param"
 
 
 def test_resources_registered():

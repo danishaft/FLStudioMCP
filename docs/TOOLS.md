@@ -69,8 +69,12 @@ match the Python signatures.
 
 ## Piano roll (10)
 
-`piano_roll_add_notes(channel, notes, pattern, clear_first)` — notes are
-dicts `{midi, time (bars), duration (bars), velocity (0..1), pan?}`.
+`piano_roll_add_notes(notes, clear_first, channel?, pattern?)` — notes are
+dicts `{midi, time_bars, duration_bars, velocity (0..1), pan?}`. If `channel`
+is given and the TCP bridge is online, that channel's piano roll is opened
+automatically before the edit (so the notes route to the right channel);
+otherwise the edit targets whatever piano roll is currently open. All the
+piano-roll tools below accept the same optional `channel` / `pattern`.
 `piano_roll_add_chord(channel, midi_notes, time_bars, duration_bars, velocity, pattern)`
 `piano_roll_add_arpeggio(channel, midi_notes, time_bars, step_bars, note_duration_bars, velocity, direction, repeats, pattern)`
 `piano_roll_delete_notes(channel, notes, pattern)`
@@ -100,7 +104,10 @@ dicts `{midi, time (bars), duration (bars), velocity (0..1), pan?}`.
 
 ## Automation (5)
 
-All accept `points = [{time_bars, value}]` and record the automation live.
+All accept `points = [{time_bars, value}]` (tempo uses `bpm` instead of `value`)
+and record the automation live. Recording is **asynchronous / non-blocking**:
+the tool returns immediately (`{"mode": "async", "scheduled": N}`) and the clip
+finishes a few seconds later without freezing FL's UI.
 
 `automation_record_tempo(points)`, `automation_record_channel_volume(channel, points)`,
 `automation_record_channel_pan(channel, points)`,
@@ -141,7 +148,7 @@ amen_break / rock)
 `voice_record_and_transcribe(duration_sec, device, min_note_sec, fmin_hz, fmax_hz)` — record + pyin transcribe, returns raw notes + wav path
 `voice_transcribe_file(audio_path, ...)` — transcribe an existing audio file
 `voice_to_piano_roll(duration_sec, bpm, device, scale_root, scale, transpose_semitones, quantize_grid_sec, min_confidence, clear_first)` — one-shot: capture + transcribe + scale-snap + quantize + write into the piano roll
-`voice_notes_to_piano_roll(notes, bpm, scale_root, scale, transpose_semitones, clear_first)` — push a pre-transcribed note list (from `voice_record_and_transcribe`) with optional cleanup
+`voice_notes_to_piano_roll(notes, bpm, scale_root, scale, transpose_semitones, quantize_grid_sec, clear_first)` — push a pre-transcribed note list (from `voice_record_and_transcribe`) with optional scale-snap / transpose / quantize. Pure-Python: does **not** require the audio extras.
 
 ## Audio analysis + DnB (5)
 

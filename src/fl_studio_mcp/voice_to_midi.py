@@ -21,16 +21,47 @@ from __future__ import annotations
 
 import logging
 import math
-import os
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-import numpy as np
+# NOTE: numpy / librosa / sounddevice / soundfile are intentionally NOT imported
+# at module scope. They are heavy optional dependencies (the `audio` extra) and
+# are imported lazily inside the functions that actually need them, so that the
+# core MCP server can build and run without them installed.
 
 log = logging.getLogger("fl_studio_mcp.voice_to_midi")
+
+
+# ---------------------------------------------------------------------------
+# Optional-dependency probe
+# ---------------------------------------------------------------------------
+
+def ensure_audio_deps(need_mic: bool = False) -> str | None:
+    """Return None if the audio extras are importable, else a help message.
+
+    `need_mic=True` additionally requires `sounddevice` (live recording).
+    Tools call this first and surface the message as a structured error so the
+    user gets the install hint instead of a raw ImportError traceback.
+    """
+    required = ["numpy", "librosa", "soundfile"]
+    if need_mic:
+        required.append("sounddevice")
+    missing = []
+    for mod in required:
+        try:
+            __import__(mod)
+        except Exception:
+            missing.append(mod)
+    if missing:
+        return (
+            "audio dependencies not installed: " + ", ".join(missing) + ". "
+            "Install them with:  pip install \"fl-studio-mcp[audio]\"  "
+            "(or re-run scripts/install_windows.ps1)."
+        )
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -93,6 +124,7 @@ def record_wav(
     beep: bool = True,
 ) -> Path:
     """Record mono audio from the given device for `duration_sec` seconds."""
+    import numpy as np
     import sounddevice as sd
     import soundfile as sf
 
@@ -138,11 +170,13 @@ def _f0_to_midi(f0_hz: float) -> float:
     return 12.0 * math.log2(f0_hz / 440.0) + 69.0
 
 
-def _nan_median_filter(seq: np.ndarray, window: int) -> np.ndarray:
+def _nan_median_filter(seq, window: int):
     """Centered median filter that ignores NaN values.
 
     For each frame, take the median of the window around it skipping NaNs.
     If an input frame is NaN it stays NaN (keeps silence markers)."""
+    import numpy as np
+
     if window <= 1:
         return seq.copy()
     n = len(seq)
@@ -179,6 +213,7 @@ def transcribe_monophonic(
       - generous merge_gap so breath pauses don't fragment held notes
     """
     import librosa
+    import numpy as np
 
     y, sr = librosa.load(str(wav_path), sr=22050, mono=True)
     if y.size < sr // 4:

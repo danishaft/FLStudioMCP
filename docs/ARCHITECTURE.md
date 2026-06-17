@@ -99,6 +99,21 @@ Events currently emitted by the bridge:
 
 ## Color handling
 
-- Bridge accepts: `"#RRGGBB"`, `"rgb(r,g,b)"`, integer.
+- Bridge accepts: `"#RRGGBB"`, `"rgb(r,g,b)"`, `[r,g,b]`, integer.
 - Bridge returns: always `"#RRGGBB"`.
-- FL Studio internal: `0xBBGGRR` integer.
+- FL Studio internal: `0xRRGGBB` integer (red in the high byte), verified
+  against `utils.RGBToColor(255, 0, 0) == 0xFF0000`.
+  - Note: fLMCP ≤ 0.1.0 used `0xBBGGRR` here, which swapped red and blue in FL.
+    Fixed in 0.2.0; see `_color_to_int` / `_int_to_color_hex` and
+    `tests/test_bridge_helpers.py`.
+
+## Automation (non-blocking)
+
+`automation_record_*` records live automation clips. The bridge must arm + play
+the transport and write parameter values at the right musical times. It does
+**not** sleep between points — sleeping inside `OnIdle()` would block FL's main
+thread and freeze the UI. Instead each point is scheduled as an absolute
+monotonic deadline and applied from `OnIdle()` (`_process_automation`), so FL
+stays fully responsive. The tool returns immediately with
+`{"mode": "async", "scheduled": N}`; the clip finishes on its own after the last
+point. Per-point timing uses a tempo snapshot taken when the call is made.

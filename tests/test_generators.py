@@ -15,6 +15,18 @@ def test_parse_root():
     assert _parse_root("F#3") == 54
 
 
+def test_parse_root_flats_equal_sharps():
+    assert _parse_root("Bb3") == _parse_root("A#3")
+    assert _parse_root("Eb4") == _parse_root("D#4")
+    assert _parse_root("Ab2") == _parse_root("G#2")
+
+
+def test_progression_degrees_are_diatonic():
+    for name, prog in COMMON_PROGRESSIONS.items():
+        for degree, _quality in prog:
+            assert 0 <= degree <= 6, f"{name}: degree {degree} out of 0..6"
+
+
 def test_c_major_triad():
     assert _chord_midi(60, "maj") == [60, 64, 67]
 

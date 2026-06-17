@@ -27,6 +27,20 @@ the error response to fall back gracefully.
   emptying the name; pattern remains in the pool.
 - ❌ `pattern_set_length` — not exposed; length is derived from notes / steps.
 
+### Channels
+- ✅ name / volume / pan / color / mute / solo / route-to-mixer / step grid.
+- ⚠️ `channel_set_pitch` — FL's `setChannelPitch` mode 2 ("semitones") is
+  **broken** in the public API, and mode 0 is a factor of the bend range, not
+  semitones. fLMCP therefore sets pitch in **cents** (mode 1, `semitones × 100`)
+  and reports back `pitch_semitones` + `pitch_cents`. The result is clamped to
+  the channel's configured pitch range, so large offsets may not fully apply.
+- ⚠️ `channel_solo` — FL's `soloChannel` has no value argument (toggle only);
+  fLMCP honours an explicit `solo=true/false` by toggling only when the current
+  state differs.
+- ⚠️ Step-sequencer get/set/clear for a **non-current** pattern — FL's grid-bit
+  API only reaches the selected pattern, so fLMCP briefly jumps to the requested
+  `pattern` and restores the previous selection afterwards.
+
 ### Playlist
 - ✅ track vol/pan/mute/solo/name/color
 - ❌ `playlist_place_pattern`, `playlist_delete_clip`, `playlist_list_clips`
@@ -35,6 +49,9 @@ the error response to fall back gracefully.
 - ⚠️ `playlist_add_marker` — works via `arrangement.addAutoTimeMarker`.
 - ⚠️ `playlist_list_markers` — cannot enumerate; use
   `arrangement_jump_marker(+1/-1)` to step through.
+- ⚠️ `playlist_refresh` — no general "repaint the playlist" function is exposed
+  (FL repaints automatically); the tool is effectively a no-op that nudges
+  performance-mode live clips where available.
 
 ### Arrangement
 - ⚠️ `arrangement_jump_marker(direction)` — works (single function: `jumpToMarker`).
@@ -58,8 +75,14 @@ the error response to fall back gracefully.
 - ✅ `mixer_select` — `setActiveTrack` (exclusive selection).
 
 ### Plugins
-- ✅ `plugin_is_valid / name / params / get_param / set_param / presets /
-  show_editor` — all map to the public API on already-loaded plugins.
+- ✅ `plugin_is_valid / name / params / get_param / set_param / show_editor` —
+  all map to the public API on already-loaded plugins. Parameter set/get and the
+  value-string read correctly account for the `pickupMode` argument that sits
+  before `useGlobalIndex` in FL's signatures.
+- ✅ Preset navigation: `plugin_preset_count / next_preset / prev_preset`.
+- ❌ `plugin_set_preset` (jump to a numeric preset) — `plugins.setPreset` is not
+  exposed by FL's public Python API. The tool returns a structured error
+  pointing at `plugin_next_preset` / `plugin_prev_preset`.
 - ❌ **Loading new plugins into a slot** — Browser drag-drop only. Ask the
   user to load once, then fLMCP fully automates the parameters.
 
@@ -85,6 +108,21 @@ error: "...not available"}` rather than raising.
 - `transport_jog` needs `FPT_Jog`
 - `transport_set_time_signature` needs `REC_MainTimeSigNum/Den`
 - `project_save` needs `FPT_Save` (FL 20+ has this)
+
+### Automation
+- `automation_record_*` record **live** automation clips: the bridge arms +
+  plays the transport and writes values at the right musical times. This is
+  **asynchronous and non-blocking** — the tool returns immediately
+  (`{"mode": "async", "scheduled": N}`) and the clip finishes on its own a few
+  seconds later. FL's UI stays responsive throughout (earlier versions slept
+  inside `OnIdle`, freezing FL for the clip's duration).
+- Timing uses a tempo snapshot taken at call time; if you change tempo mid-clip
+  the later points may drift slightly.
+
+### Colors
+- ✅ Set/read on patterns, channels, mixer and playlist tracks. FL stores colors
+  as `0xRRGGBB`; fLMCP accepts `#RRGGBB` / `rgb(r,g,b)` / `[r,g,b]` / int and
+  always returns `#RRGGBB`. (Versions ≤ 0.1.0 swapped red and blue — fixed.)
 
 ### TCP transport
 - Single-connection at a time: multiple concurrent MCP clients will serialize

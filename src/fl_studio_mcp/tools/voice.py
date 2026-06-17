@@ -20,6 +20,7 @@ from ..voice_to_midi import (
     Note,
     SCALE_INTERVALS,
     drop_low_confidence,
+    ensure_audio_deps,
     list_input_devices,
     notes_as_piano_roll,
     quantize,
@@ -50,6 +51,15 @@ def register(mcp: FastMCP) -> None:
         (scale snap / quantize / transpose / confidence filter) and a 'Send
         to FL Studio' button.
         """
+        err = ensure_audio_deps(need_mic=True)
+        if err:
+            return {"ok": False, "error": err}
+        try:
+            import dearpygui  # noqa: F401
+        except Exception:
+            return {"ok": False,
+                    "error": "Dear PyGui not installed. Install with: "
+                             "pip install \"fl-studio-mcp[gui]\" (or [audio])."}
         import subprocess
         import sys as _sys
         try:
@@ -66,6 +76,9 @@ def register(mcp: FastMCP) -> None:
     @mcp.tool()
     def voice_list_devices() -> dict:
         """List available microphones (indexes + names + default flag)."""
+        err = ensure_audio_deps(need_mic=True)
+        if err:
+            return {"ok": False, "error": err, "devices": []}
         return {"devices": list_input_devices()}
 
     @mcp.tool()
@@ -82,6 +95,9 @@ def register(mcp: FastMCP) -> None:
         the transcription before touching the piano roll. 3 short + 1 long
         beep plays at start, 1 beep at stop.
         """
+        err = ensure_audio_deps(need_mic=True)
+        if err:
+            return {"ok": False, "error": err}
         wav = record_wav(duration_sec, device=device)
         notes = transcribe_monophonic(
             wav, fmin_hz=fmin_hz, fmax_hz=fmax_hz,
@@ -101,6 +117,9 @@ def register(mcp: FastMCP) -> None:
         fmax_hz: float = 1200.0,
     ) -> dict:
         """Transcribe an existing audio file (wav / flac / mp3 / ogg) into MIDI notes."""
+        err = ensure_audio_deps(need_mic=False)
+        if err:
+            return {"ok": False, "error": err}
         notes = transcribe_monophonic(
             audio_path, fmin_hz=fmin_hz, fmax_hz=fmax_hz,
             min_note_sec=min_note_sec,
@@ -145,6 +164,9 @@ def register(mcp: FastMCP) -> None:
         """
         import time as _t
 
+        err = ensure_audio_deps(need_mic=True)
+        if err:
+            return {"ok": False, "error": err}
         t0 = _t.monotonic()
         wav = record_wav(duration_sec, device=device)
         t_rec = _t.monotonic() - t0
@@ -217,14 +239,20 @@ def register(mcp: FastMCP) -> None:
         scale_root: Optional[str] = None,
         scale: Optional[str] = None,
         transpose_semitones: int = 0,
+        quantize_grid_sec: Optional[float] = None,
         clear_first: bool = True,
     ) -> dict:
         """Push an already-transcribed note list (from voice_record_and_transcribe)
-        into the piano roll with optional scale snapping / transposition.
+        into the piano roll with optional scale snapping / transposition / quantize.
 
         Useful when you want Claude to inspect the raw transcription first,
-        tweak it, then send a cleaned-up version.
+        tweak it, then send a cleaned-up version. This tool is pure-Python and
+        does NOT require the audio extras.
         """
+        if scale_root and scale and scale not in SCALE_INTERVALS:
+            return {"ok": False,
+                    "error": f"unknown scale '{scale}'; choose from "
+                             f"{list(SCALE_INTERVALS.keys())}"}
         typed = [Note(midi=int(n["midi"]),
                       start_sec=float(n["start_sec"]),
                       duration_sec=float(n["duration_sec"]),
@@ -236,6 +264,8 @@ def register(mcp: FastMCP) -> None:
             typed = transpose(typed, transpose_semitones)
         if scale_root and scale:
             typed = snap_to_scale(typed, root=scale_root, scale=scale)
+        if quantize_grid_sec is not None and quantize_grid_sec > 0:
+            typed = quantize(typed, grid_sec=quantize_grid_sec, strength=1.0)
 
         pr_notes = notes_as_piano_roll(typed, bpm=bpm)
         qn_notes = [{"midi": n["midi"], "time": n["time_bars"] * 4,

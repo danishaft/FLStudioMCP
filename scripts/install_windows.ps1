@@ -21,6 +21,7 @@
 param(
     [switch]$SkipVenv,
     [switch]$SkipClaudeConfig,
+    [switch]$SkipAudio,          # skip the heavy voice/audio extras (librosa etc.)
     [string]$PythonExe = "python"
 )
 
@@ -54,8 +55,17 @@ if (-not $SkipVenv) {
     }
     $venvPython = Join-Path $venv "Scripts\python.exe"
     & $venvPython -m pip install --upgrade pip --quiet
-    & $venvPython -m pip install -e $repo --quiet
-    Write-Host "    installed fl-studio-mcp into $venv"
+    if ($SkipAudio) {
+        & $venvPython -m pip install -e $repo --quiet
+        Write-Host "    installed fl-studio-mcp (core only) into $venv"
+        Write-Host "    NOTE: voice-to-MIDI / audio analysis need the extras:" -ForegroundColor Yellow
+        Write-Host "          $venvPython -m pip install -e `"$repo[audio,gui]`""
+    } else {
+        # Install with the audio + gui extras so voice-to-MIDI and audio analysis
+        # work out of the box. These pull librosa / sounddevice / dearpygui etc.
+        & $venvPython -m pip install -e "$repo[audio,gui]" --quiet
+        Write-Host "    installed fl-studio-mcp (with audio+gui extras) into $venv"
+    }
 } else {
     Write-Host "[2/4] Skipping venv step."
     $venvPython = $PythonExe

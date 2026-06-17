@@ -25,6 +25,7 @@ from ..voice_to_midi import (
     Note,
     SCALE_INTERVALS,
     drop_low_confidence,
+    ensure_audio_deps,
     notes_as_piano_roll,
     quantize as quantize_notes,
     snap_to_scale,
@@ -128,6 +129,9 @@ def register(mcp: FastMCP) -> None:
         Returns BPM, detected key (root + major/minor), beat + onset timings,
         and optionally a monophonic melody transcription.
         """
+        err = ensure_audio_deps()
+        if err:
+            return {"ok": False, "error": err}
         if not os.path.exists(path):
             return {"ok": False, "error": f"file not found: {path}"}
         a = analyze_audio(path, extract_melody=extract_melody)
@@ -146,6 +150,9 @@ def register(mcp: FastMCP) -> None:
         Great for chopping a drum loop or sampled track into one-shots you
         can drag into FL's channel rack as sampler voices.
         """
+        err = ensure_audio_deps()
+        if err:
+            return {"ok": False, "error": err}
         if not os.path.exists(path):
             return {"ok": False, "error": f"file not found: {path}"}
         slices = slice_at_onsets(path, output_dir=output_dir,
@@ -165,6 +172,9 @@ def register(mcp: FastMCP) -> None:
         If `bpm` is None, the detected BPM is used.  If `snap_to_detected_key`
         is True, all notes are snapped to the detected key of the track.
         """
+        err = ensure_audio_deps()
+        if err:
+            return {"ok": False, "error": err}
         if not os.path.exists(path):
             return {"ok": False, "error": f"file not found: {path}"}
 
@@ -237,6 +247,9 @@ def register(mcp: FastMCP) -> None:
         (single channel). For a proper mix, duplicate the channel in FL and
         route by MIDI range (drums 36-51, bass < 40, melody > 55).
         """
+        err = ensure_audio_deps()
+        if err:
+            return {"ok": False, "error": err}
         if not os.path.exists(audio_path):
             return {"ok": False, "error": f"file not found: {audio_path}"}
         a = analyze_audio(audio_path, extract_melody=include_melody)
@@ -251,8 +264,9 @@ def register(mcp: FastMCP) -> None:
             from .generators import NOTE_NAMES
             if a.key_root in NOTE_NAMES:
                 root_pc = NOTE_NAMES.index(a.key_root)
-                # octave -1 for 808 sub (MIDI 12..23)
-                root_midi = root_pc + 12 * 2   # C1..B1 range
+                # Octave 1 sub-bass: MIDI 24..35 (C1..B1). root_pc is 0..11, so
+                # root_pc + 24 lands the root in the C1..B1 range.
+                root_midi = root_pc + 24
                 notes.extend(_reese_bass(root_midi, length_bars=float(dnb_bars)))
 
         # 3) Melody on top, at target_bpm-converted timing
@@ -288,7 +302,7 @@ def register(mcp: FastMCP) -> None:
                 "melody": include_melody and bool(a.notes),
             },
             "hint": "Recommended: set FL project tempo to %d BPM. Duplicate "
-                    "channel and route by MIDI range: drums 36-51, bass 12-28, "
+                    "channel and route by MIDI range: drums 36-51, bass 24-35, "
                     "melody 40-90." % int(target_bpm),
             "piano_roll_state": res.get("state"),
         }

@@ -85,8 +85,34 @@ def wait_for_state(deadline_sec: float = 3.0) -> dict | None:
     return None
 
 
-def stage_and_run(actions: list[dict], wait_sec: float = 3.0) -> dict:
-    """Queue one or more piano-roll actions, fire the hotkey, wait for state."""
+def open_piano_roll(channel: int | None = None, pattern: int | None = None) -> dict:
+    """Best-effort: ask the TCP (MIDI) bridge to open the given channel's piano
+    roll, optionally switching pattern first, so subsequently-staged edits land
+    on the intended channel.
+
+    If the TCP bridge is offline (no `fLMCP Bridge` MIDI device enabled), this
+    is a no-op and edits target whatever piano roll is currently open in FL.
+    Requires a channel — FL needs a channel to know which piano roll to show.
+    """
+    if channel is None:
+        return {"opened": False, "reason": "no channel specified — using the currently-open piano roll"}
+    try:
+        from .bridge_client import get_client
+        get_client().call("ui.openPianoRoll", channel=int(channel), pattern=pattern)
+        return {"opened": True, "channel": int(channel), "pattern": pattern}
+    except Exception as e:
+        return {"opened": False,
+                "reason": f"MIDI bridge offline ({e}); edits target the currently-open piano roll. "
+                          "Open the target channel's piano roll manually for correct routing."}
+
+
+def stage_and_run(actions: list[dict], wait_sec: float = 3.0,
+                  channel: int | None = None, pattern: int | None = None) -> dict:
+    """Queue one or more piano-roll actions, fire the hotkey, wait for state.
+
+    If `channel` is given and the TCP bridge is online, the correct channel's
+    piano roll is opened first (best-effort) so the edits route to it.
+    """
     from .keystroke import send_hotkey_windows
 
     if not is_installed():
@@ -99,6 +125,8 @@ def stage_and_run(actions: list[dict], wait_sec: float = 3.0) -> dict:
             ),
         }
 
+    open_status = open_piano_roll(channel, pattern) if channel is not None else None
+
     clear_state()
     for a in actions:
         _append_request(a)
@@ -106,7 +134,7 @@ def stage_and_run(actions: list[dict], wait_sec: float = 3.0) -> dict:
     fired = send_hotkey_windows()
     state = wait_for_state(wait_sec) if fired else None
 
-    return {
+    result = {
         "ok": bool(fired and state is not None),
         "hotkey_sent": fired,
         "staged_actions": len(actions),
@@ -116,6 +144,9 @@ def stage_and_run(actions: list[dict], wait_sec: float = 3.0) -> dict:
             "foreground and ComposeWithLLM is the active piano-roll script, "
             "then press Ctrl+Alt+Y manually.",
     }
+    if open_status is not None:
+        result["open_status"] = open_status
+    return result
 
 
 def read_state() -> dict | None:

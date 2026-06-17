@@ -16,18 +16,22 @@ import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import numpy as np
+# numpy / librosa / soundfile are heavy optional deps (the `audio` extra) and are
+# imported lazily inside the functions that need them, so importing this module
+# (e.g. when the MCP server registers the audio tools) does not require them.
 
 from .voice_to_midi import Note, transcribe_monophonic
 
 log = logging.getLogger("fl_studio_mcp.audio_analysis")
 
 
-# Key profiles (Krumhansl-Schmuckler) for major/minor key detection
-_KEY_PROFILE_MAJOR = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09,
-                               2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
-_KEY_PROFILE_MINOR = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53,
-                               2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
+# Key profiles (Krumhansl-Schmuckler) for major/minor key detection. Kept as
+# plain Python tuples so this module imports without numpy; converted to arrays
+# lazily inside `_estimate_key`.
+_KEY_PROFILE_MAJOR = (6.35, 2.23, 3.48, 2.33, 4.38, 4.09,
+                      2.52, 5.19, 2.39, 3.66, 2.29, 2.88)
+_KEY_PROFILE_MINOR = (6.33, 2.68, 3.52, 5.38, 2.60, 3.53,
+                      2.54, 4.75, 3.98, 2.69, 3.34, 3.17)
 _NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 
@@ -78,6 +82,7 @@ def analyze_audio(path: str | Path,
                   target_sr: int = 22050) -> AudioAnalysis:
     """Full analysis: tempo, key, onsets, loudness, (optional) melody."""
     import librosa
+    import numpy as np
 
     path = str(path)
     if not os.path.exists(path):
@@ -142,13 +147,18 @@ def analyze_audio(path: str | Path,
     return a
 
 
-def _estimate_key(pc_mean: np.ndarray) -> tuple[str, str, float]:
+def _estimate_key(pc_mean) -> tuple[str, str, float]:
     """Krumhansl-Schmuckler key profile correlation."""
+    import numpy as np
+
+    profile_major = np.array(_KEY_PROFILE_MAJOR)
+    profile_minor = np.array(_KEY_PROFILE_MINOR)
+    pc_mean = np.asarray(pc_mean, dtype=float)
     pc = pc_mean / (pc_mean.sum() + 1e-9)
     best_name, best_scale, best_corr = "C", "major", -2.0
     for i in range(12):
-        maj_shifted = np.roll(_KEY_PROFILE_MAJOR, i)
-        min_shifted = np.roll(_KEY_PROFILE_MINOR, i)
+        maj_shifted = np.roll(profile_major, i)
+        min_shifted = np.roll(profile_minor, i)
         corr_maj = float(np.corrcoef(pc, maj_shifted)[0, 1])
         corr_min = float(np.corrcoef(pc, min_shifted)[0, 1])
         if corr_maj > best_corr:

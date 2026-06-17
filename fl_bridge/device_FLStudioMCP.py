@@ -43,18 +43,26 @@ import time
 import traceback
 from pathlib import Path
 
-# FL Studio API — available when running inside FL Studio
-import arrangement
-import channels
-import device
-import general
-import midi
-import mixer
-import patterns
-import playlist
-import plugins
-import transport
-import ui
+# FL Studio API — available when running inside FL Studio. Wrapped so this file
+# can also be imported outside FL (e.g. by the offline unit tests, which only
+# exercise the pure helper functions like colour / version / position mapping).
+try:
+    import arrangement
+    import channels
+    import device
+    import general
+    import midi
+    import mixer
+    import patterns
+    import playlist
+    import plugins
+    import transport
+    import ui
+    _IN_FL_STUDIO = True
+except ImportError:  # pragma: no cover - exercised only outside FL Studio
+    arrangement = channels = device = general = midi = None
+    mixer = patterns = playlist = plugins = transport = ui = None
+    _IN_FL_STUDIO = False
 
 
 # ----------------------------------------------------------------------------
@@ -65,7 +73,7 @@ BRIDGE_HOST = "127.0.0.1"
 BRIDGE_PORT = 9876
 HEADER = struct.Struct(">I")
 MAX_FRAME = 16 * 1024 * 1024
-BRIDGE_VERSION = "0.1.0"
+BRIDGE_VERSION = "0.2.0"
 
 
 def _script_dir():
@@ -97,6 +105,8 @@ _started_at = time.monotonic()
 _idle_tick = 0
 _last_refresh_push = 0.0
 _known_clients = set()  # live client sockets for push notifications
+_auto_jobs = []          # pending non-blocking automation jobs (see automation section)
+_auto_recording = False  # True while an automation clip is being recorded live
 
 
 # ----------------------------------------------------------------------------
@@ -137,22 +147,29 @@ def _read_frame(sock):
 
 
 def _color_to_int(color):
-    """Convert '#RRGGBB', 'rgb(r,g,b)' or int to FL's 0xBBGGRR integer."""
+    """Convert '#RRGGBB', 'rgb(r,g,b)', [r,g,b] or int to FL's colour integer.
+
+    FL Studio stores colours as 0xRRGGBB (red in the high byte) — verified
+    against `utils.RGBToColor(255, 0, 0) == 0xFF0000`. Earlier versions of this
+    bridge used 0xBBGGRR, which swapped red and blue in FL.
+    """
+    if isinstance(color, bool):
+        return 0
     if isinstance(color, int):
         return color
     if isinstance(color, (list, tuple)) and len(color) >= 3:
         r, g, b = int(color[0]), int(color[1]), int(color[2])
-        return (b << 16) | (g << 8) | r
+        return (r << 16) | (g << 8) | b
     s = str(color).strip()
     if s.startswith("#"):
         s = s[1:]
         if len(s) == 6:
             r = int(s[0:2], 16); g = int(s[2:4], 16); b = int(s[4:6], 16)
-            return (b << 16) | (g << 8) | r
+            return (r << 16) | (g << 8) | b
     if s.lower().startswith("rgb"):
         parts = s[s.find("(")+1:s.find(")")].split(",")
         r, g, b = [int(p.strip()) for p in parts[:3]]
-        return (b << 16) | (g << 8) | r
+        return (r << 16) | (g << 8) | b
     try:
         return int(s, 0)
     except Exception:
@@ -160,9 +177,11 @@ def _color_to_int(color):
 
 
 def _int_to_color_hex(color):
-    b = (color >> 16) & 0xFF
+    """Convert FL's 0xRRGGBB colour integer to '#RRGGBB'."""
+    color = int(color) & 0xFFFFFF
+    r = (color >> 16) & 0xFF
     g = (color >> 8) & 0xFF
-    r = color & 0xFF
+    b = color & 0xFF
     return "#%02X%02X%02X" % (r, g, b)
 
 
@@ -496,13 +515,20 @@ def h_patterns_jump_prev(_):
 
 def _ch_info(i):
     use_global = True
+    # getChannelPitch(index, mode=1) returns the offset in CENTS (the API docs
+    # mislabel it "semitones"); divide by 100 for a true semitone value.
+    pitch_cents = _safe(channels.getChannelPitch, i, 1, use_global)
+    # getChannelVolume(index, mode, useGlobalIndex): mode=False -> normalized
+    # 0..1 (what setVolume expects), mode=True -> dB. The index arg comes THIRD.
     return {
         "index": i,
         "name": channels.getChannelName(i, use_global),
         "color": _int_to_color_hex(channels.getChannelColor(i, use_global)),
-        "volume": channels.getChannelVolume(i, use_global),
+        "volume": channels.getChannelVolume(i, False, use_global),
+        "volume_db": _safe(channels.getChannelVolume, i, True, use_global),
         "pan": channels.getChannelPan(i, use_global),
-        "pitch": _safe(channels.getChannelPitch, i),
+        "pitch_semitones": round(pitch_cents / 100.0, 4) if pitch_cents is not None else None,
+        "pitch_cents": pitch_cents,
         "is_muted": channels.isChannelMuted(i, use_global) == 1,
         "is_solo": channels.isChannelSolo(i, use_global) == 1,
         "is_selected": channels.isChannelSelected(i, use_global) == 1,
@@ -543,35 +569,44 @@ def h_channels_select(p):
 
 
 def h_channels_set_volume(p):
-    channels.setChannelVolume(int(p["index"]), float(p["volume"]), True)
+    # setChannelVolume(index, volume, pickupMode, useGlobalIndex): keep pickup
+    # off (0) and use the GLOBAL index — the 3rd positional arg is pickupMode,
+    # NOT useGlobalIndex, which earlier versions got wrong.
+    channels.setChannelVolume(int(p["index"]), float(p["volume"]), 0, True)
     return _ch_info(int(p["index"]))
 
 
 def h_channels_set_pan(p):
-    channels.setChannelPan(int(p["index"]), float(p["pan"]), True)
+    channels.setChannelPan(int(p["index"]), float(p["pan"]), 0, True)
     return _ch_info(int(p["index"]))
 
 
 def h_channels_set_pitch(p):
-    channels.setChannelPitch(int(p["index"]), float(p["semitones"]))
-    return _ch_info(int(p["index"]))
+    idx = int(p["index"])
+    semitones = float(p["semitones"])
+    # mode 1 = cents. (mode 0 is a factor of the bend range; mode 2 is broken.)
+    # The result is clamped to the channel's configured pitch range.
+    channels.setChannelPitch(idx, semitones * 100.0, 1, 0, True)
+    return _ch_info(idx)
 
 
 def h_channels_mute(p):
     idx = int(p["index"]); muted = p.get("muted")
+    # muteChannel(index, value=-1, useGlobalIndex): value -1 toggles, 0/1 set.
     if muted is None:
-        channels.muteChannel(idx)
+        channels.muteChannel(idx, -1, True)
     else:
-        want = bool(muted)
-        is_m = channels.isChannelMuted(idx, True) == 1
-        if want != is_m:
-            channels.muteChannel(idx)
+        channels.muteChannel(idx, 1 if muted else 0, True)
     return {"index": idx, "is_muted": channels.isChannelMuted(idx, True) == 1}
 
 
 def h_channels_solo(p):
     idx = int(p["index"]); solo = p.get("solo")
-    channels.soloChannel(idx)
+    # soloChannel has no value arg (toggle only), so honour an explicit desired
+    # state by toggling only when it differs from the current state.
+    is_solo = channels.isChannelSolo(idx, True) == 1
+    if solo is None or bool(solo) != is_solo:
+        channels.soloChannel(idx, True)
     return {"index": idx, "is_solo": channels.isChannelSolo(idx, True) == 1}
 
 
@@ -603,42 +638,71 @@ def h_channels_trigger_note(p):
 
 def h_channels_get_grid_bit(p):
     idx = int(p["index"]); pos = int(p["position"])
-    return {"value": channels.getGridBit(idx, pos) == 1}
+    return {"value": channels.getGridBit(idx, pos, True) == 1}
 
 
 def h_channels_set_grid_bit(p):
     idx = int(p["index"]); pos = int(p["position"]); v = bool(p["value"])
-    channels.setGridBit(idx, pos, 1 if v else 0)
-    return {"value": channels.getGridBit(idx, pos) == 1}
+    channels.setGridBit(idx, pos, 1 if v else 0, True)
+    return {"value": channels.getGridBit(idx, pos, True) == 1}
+
+
+def _enter_pattern(pattern):
+    """If `pattern` is given, jump to it and return the previous pattern index
+    (to restore afterwards); otherwise return None. Grid-bit access always
+    targets the currently-selected pattern, so this is how we reach another."""
+    if pattern is None:
+        return None
+    prev = patterns.patternNumber()
+    patterns.jumpToPattern(int(pattern))
+    return prev
+
+
+def _restore_pattern(prev):
+    if prev is not None:
+        patterns.jumpToPattern(int(prev))
 
 
 def h_channels_get_step_sequence(p):
     idx = int(p["index"])
-    # pattern length in steps:
-    steps = _safe(patterns.getPatternLength, patterns.patternNumber()) or 16
-    seq = [channels.getGridBit(idx, s) for s in range(steps)]
-    return {"steps": seq, "length": steps}
+    prev = _enter_pattern(p.get("pattern"))
+    try:
+        cur = patterns.patternNumber()
+        steps = _safe(patterns.getPatternLength, cur) or 16
+        seq = [1 if channels.getGridBit(idx, s, True) else 0 for s in range(steps)]
+        return {"steps": seq, "length": steps, "pattern": cur}
+    finally:
+        _restore_pattern(prev)
 
 
 def h_channels_set_step_sequence(p):
     idx = int(p["index"]); steps = p.get("steps", [])
-    for s, v in enumerate(steps):
-        channels.setGridBit(idx, s, 1 if v else 0)
-    return {"written": len(steps)}
+    prev = _enter_pattern(p.get("pattern"))
+    try:
+        for s, v in enumerate(steps):
+            channels.setGridBit(idx, s, 1 if v else 0, True)
+        return {"written": len(steps), "pattern": patterns.patternNumber()}
+    finally:
+        _restore_pattern(prev)
 
 
 def h_channels_clear_step_sequence(p):
     idx = int(p["index"])
-    steps = _safe(patterns.getPatternLength, patterns.patternNumber()) or 16
-    for s in range(steps):
-        channels.setGridBit(idx, s, 0)
-    return {"cleared": steps}
+    prev = _enter_pattern(p.get("pattern"))
+    try:
+        steps = _safe(patterns.getPatternLength, patterns.patternNumber()) or 16
+        for s in range(steps):
+            channels.setGridBit(idx, s, 0, True)
+        return {"cleared": steps, "pattern": patterns.patternNumber()}
+    finally:
+        _restore_pattern(prev)
 
 
 def h_channels_quick_quantize(p):
     idx = int(p["index"])
     channels.selectOneChannel(idx, True)
-    channels.quickQuantize()
+    # quickQuantize(index, startOnly=1, useGlobalIndex): index is REQUIRED.
+    channels.quickQuantize(idx, 1, True)
     return {"ok": True}
 
 
@@ -721,8 +785,12 @@ def h_mixer_solo(p):
 
 
 def h_mixer_arm(p):
-    tr = int(p["track"])
-    mixer.armTrack(tr)
+    tr = int(p["track"]); armed = p.get("armed")
+    # armTrack(index) is toggle-only (no value arg), so honour an explicit
+    # desired state by toggling only when it differs from the current state.
+    is_armed = mixer.isTrackArmed(tr) == 1
+    if armed is None or bool(armed) != is_armed:
+        mixer.armTrack(tr)
     return _mx_info(tr)
 
 
@@ -854,7 +922,8 @@ def h_plugins_params(p):
                 "idx": i,
                 "name": plugins.getParamName(i, idx, slot, ug),
                 "value": plugins.getParamValue(i, idx, slot, ug),
-                "value_string": plugins.getParamValueString(i, idx, slot, ug),
+                # getParamValueString has a pickupMode arg BEFORE useGlobalIndex.
+                "value_string": plugins.getParamValueString(i, idx, slot, 0, ug),
             })
         except Exception:
             pass
@@ -866,17 +935,19 @@ def h_plugins_get_param(p):
     pid = int(p["param"])
     return {
         "value": plugins.getParamValue(pid, idx, slot, ug),
-        "value_string": plugins.getParamValueString(pid, idx, slot, ug),
+        "value_string": plugins.getParamValueString(pid, idx, slot, 0, ug),
     }
 
 
 def h_plugins_set_param(p):
     idx, slot, ug = _resolve_plugin_loc(p)
     pid = int(p["param"]); v = float(p["value"])
-    plugins.setParamValue(v, pid, idx, slot, ug)
+    # setParamValue(value, paramIndex, index, slotIndex, pickupMode, useGlobalIndex)
+    # — pickupMode comes BEFORE useGlobalIndex; keep pickup off (0).
+    plugins.setParamValue(v, pid, idx, slot, 0, ug)
     return {
         "value": plugins.getParamValue(pid, idx, slot, ug),
-        "value_string": plugins.getParamValueString(pid, idx, slot, ug),
+        "value_string": plugins.getParamValueString(pid, idx, slot, 0, ug),
     }
 
 
@@ -915,18 +986,21 @@ def h_plugins_prev_preset(p):
 
 def h_plugins_set_preset(p):
     idx, slot, ug = _resolve_plugin_loc(p)
-    plugins.setPreset(int(p["preset"]), idx, slot, ug)
-    return {"ok": True}
+    preset = int(p["preset"])
+    if not hasattr(plugins, "setPreset"):
+        return {"ok": False,
+                "error": "plugins.setPreset is not exposed by FL's Python API; "
+                         "step presets with plugin_next_preset / plugin_prev_preset."}
+    plugins.setPreset(preset, idx, slot, ug)
+    return {"ok": True, "preset": preset}
 
 
 def h_plugins_show_editor(p):
     idx, slot, ug = _resolve_plugin_loc(p)
     show = p.get("show")
     try:
-        if show is None:
-            channels.showEditor(idx, -1)
-        else:
-            channels.showEditor(idx, 1 if show else 0)
+        # showEditor(index, value=-1, useGlobalIndex): value -1 toggles.
+        channels.showEditor(idx, -1 if show is None else (1 if show else 0), ug)
     except Exception:
         pass
     return {"ok": True}
@@ -952,13 +1026,17 @@ def h_plugins_list_mixer_track(p):
 # ---- playlist --------------------------------------------------------------
 
 def _pl_info(i):
+    # getTrackHeight is NOT in FL's public API; use getattr so a missing
+    # attribute doesn't blow up the whole call (the name is evaluated eagerly
+    # as an argument, so `_safe(playlist.getTrackHeight, i)` would still raise).
+    get_height = getattr(playlist, "getTrackHeight", None)
     return {
         "index": i,
         "name": _safe(playlist.getTrackName, i) or "",
         "color": _int_to_color_hex(_safe(playlist.getTrackColor, i) or 0),
         "is_muted": _safe(playlist.isTrackMuted, i) == 1,
         "is_solo": _safe(playlist.isTrackSolo, i) == 1,
-        "height": _safe(playlist.getTrackHeight, i),
+        "height": _safe(get_height, i) if get_height else None,
     }
 
 
@@ -994,14 +1072,16 @@ def h_playlist_set_track_color(p):
 
 
 def h_playlist_mute_track(p):
-    tr = int(p["track"])
-    playlist.muteTrack(tr)
+    tr = int(p["track"]); muted = p.get("muted")
+    # muteTrack(index, value=-1): -1 toggles, 0/1 set explicitly.
+    playlist.muteTrack(tr, -1 if muted is None else (1 if muted else 0))
     return _pl_info(tr)
 
 
 def h_playlist_solo_track(p):
-    tr = int(p["track"])
-    playlist.soloTrack(tr)
+    tr = int(p["track"]); solo = p.get("solo")
+    # soloTrack(index, value=-1, inGroup=False): -1 toggles, 0/1 set explicitly.
+    playlist.soloTrack(tr, -1 if solo is None else (1 if solo else 0))
     return _pl_info(tr)
 
 
@@ -1031,8 +1111,13 @@ def h_playlist_delete_clip(p):
 
 
 def h_playlist_refresh(_):
-    playlist.refresh()
-    return {"ok": True}
+    # FL's public API has no general "repaint the playlist" call (it repaints
+    # automatically). refreshLiveClips only touches performance-mode clips.
+    if hasattr(playlist, "refreshLiveClips"):
+        _safe(playlist.refreshLiveClips, 0)
+    return {"ok": True,
+            "note": "FL repaints the playlist automatically; no general refresh "
+                    "function is exposed by the public Python API."}
 
 
 def h_playlist_list_markers(_):
@@ -1097,13 +1182,18 @@ def h_arr_play_time(_):
         return {}
 
 
-# ---- automation -----------------------------------------------------------
+# ---- automation -------------------------------------------------------------
+#
+# Automation is recorded live: arm + play the transport, then write parameter
+# values at the right musical times so FL captures an automation clip. The naive
+# approach (time.sleep between points) would block FL's main thread inside
+# OnIdle and FREEZE the whole UI for the duration. Instead we schedule each
+# point as an absolute monotonic deadline and apply it from OnIdle without ever
+# sleeping — FL stays fully responsive while the clip records.
 
-def _sleep_bars(bars):
-    # bars to seconds using current tempo
+def _seconds_per_bar():
     bpm = mixer.getCurrentTempo() / 1000.0
-    seconds_per_beat = 60.0 / max(1e-6, bpm)
-    time.sleep(bars * 4 * seconds_per_beat)
+    return (60.0 / max(1e-6, bpm)) * 4.0
 
 
 def _rec_tempo(bpm):
@@ -1114,75 +1204,105 @@ def _rec_tempo(bpm):
     )
 
 
-def h_automation_record_tempo(p):
-    pts = p.get("points", [])
-    if not pts:
+def _enqueue_automation(points, apply_value, value_key="value", label=""):
+    """Schedule `points` ([{time_bars, <value_key>}]) to be applied live from
+    OnIdle. `apply_value(float)` writes one value. Returns immediately."""
+    global _auto_recording
+    if not points:
         return {"ok": False, "error": "no points"}
-    transport.record()  # arm
-    transport.start()
-    last_t = 0.0
-    for pt in pts:
-        t = float(pt["time_bars"])
-        _sleep_bars(max(0.0, t - last_t))
-        _rec_tempo(float(pt["bpm"]))
-        last_t = t
-    transport.stop()
-    transport.record()  # disarm
-    return {"ok": True, "points": len(pts)}
+    try:
+        spb = _seconds_per_bar()
+        start = time.monotonic()
+        sched = []
+        for pt in points:
+            t_bars = max(0.0, float(pt.get("time_bars", 0.0)))
+            val = float(pt[value_key])
+            sched.append((start + t_bars * spb, val))
+        sched.sort(key=lambda x: x[0])
+
+        if not _auto_recording:
+            transport.record()   # arm
+            transport.start()    # roll
+            _auto_recording = True
+        _auto_jobs.append({"sched": sched, "idx": 0, "apply": apply_value, "label": label})
+        total_bars = max((float(pt.get("time_bars", 0.0)) for pt in points), default=0.0)
+        return {
+            "ok": True,
+            "scheduled": len(sched),
+            "label": label,
+            "approx_duration_sec": round(total_bars * spb, 2),
+            "mode": "async",
+            "note": "Recording live without blocking FL's UI; the clip finishes "
+                    "automatically after the last point.",
+        }
+    except Exception as e:
+        return {"ok": False, "error": "%s: %s" % (type(e).__name__, e)}
+
+
+def _process_automation():
+    """Apply any due automation points and stop recording when all jobs finish.
+    Called from OnIdle on FL's main thread. Never blocks."""
+    global _auto_recording
+    if not _auto_jobs:
+        return
+    now = time.monotonic()
+    for job in _auto_jobs:
+        sched = job["sched"]
+        apply_value = job["apply"]
+        while job["idx"] < len(sched) and sched[job["idx"]][0] <= now:
+            try:
+                apply_value(sched[job["idx"]][1])
+            except Exception as e:
+                _log("automation apply (%s) failed: %s" % (job.get("label"), e))
+            job["idx"] += 1
+    # Drop finished jobs.
+    _auto_jobs[:] = [j for j in _auto_jobs if j["idx"] < len(j["sched"])]
+    if not _auto_jobs and _auto_recording:
+        try:
+            transport.stop()
+            transport.record()  # disarm
+        except Exception:
+            pass
+        _auto_recording = False
+
+
+def h_automation_record_tempo(p):
+    return _enqueue_automation(p.get("points", []), _rec_tempo,
+                               value_key="bpm", label="tempo")
 
 
 def h_automation_record_channel_volume(p):
-    ch = int(p["channel"]); pts = p.get("points", [])
-    transport.record(); transport.start()
-    last_t = 0.0
-    for pt in pts:
-        t = float(pt["time_bars"])
-        _sleep_bars(max(0.0, t - last_t))
-        channels.setChannelVolume(ch, float(pt["value"]), True)
-        last_t = t
-    transport.stop(); transport.record()
-    return {"ok": True, "points": len(pts)}
+    ch = int(p["channel"])
+    return _enqueue_automation(
+        p.get("points", []),
+        lambda v: channels.setChannelVolume(ch, v, 0, True),
+        label="channel_volume")
 
 
 def h_automation_record_channel_pan(p):
-    ch = int(p["channel"]); pts = p.get("points", [])
-    transport.record(); transport.start()
-    last_t = 0.0
-    for pt in pts:
-        t = float(pt["time_bars"])
-        _sleep_bars(max(0.0, t - last_t))
-        channels.setChannelPan(ch, float(pt["value"]), True)
-        last_t = t
-    transport.stop(); transport.record()
-    return {"ok": True, "points": len(pts)}
+    ch = int(p["channel"])
+    return _enqueue_automation(
+        p.get("points", []),
+        lambda v: channels.setChannelPan(ch, v, 0, True),
+        label="channel_pan")
 
 
 def h_automation_record_mixer_volume(p):
-    tr = int(p["track"]); pts = p.get("points", [])
-    transport.record(); transport.start()
-    last_t = 0.0
-    for pt in pts:
-        t = float(pt["time_bars"])
-        _sleep_bars(max(0.0, t - last_t))
-        mixer.setTrackVolume(tr, float(pt["value"]))
-        last_t = t
-    transport.stop(); transport.record()
-    return {"ok": True, "points": len(pts)}
+    tr = int(p["track"])
+    return _enqueue_automation(
+        p.get("points", []),
+        lambda v: mixer.setTrackVolume(tr, v),
+        label="mixer_volume")
 
 
 def h_automation_record_plugin_param(p):
     idx = int(p["channel"]); slot = int(p.get("slot", -1))
     ug = (p.get("location", "channel") == "channel")
-    param = int(p["param"]); pts = p.get("points", [])
-    transport.record(); transport.start()
-    last_t = 0.0
-    for pt in pts:
-        t = float(pt["time_bars"])
-        _sleep_bars(max(0.0, t - last_t))
-        plugins.setParamValue(float(pt["value"]), param, idx, slot, ug)
-        last_t = t
-    transport.stop(); transport.record()
-    return {"ok": True, "points": len(pts)}
+    param = int(p["param"])
+    return _enqueue_automation(
+        p.get("points", []),
+        lambda v: plugins.setParamValue(v, param, idx, slot, 0, ug),
+        label="plugin_param")
 
 
 # ---- project ---------------------------------------------------------------
@@ -1273,24 +1393,40 @@ def h_project_version(_):
 
 # ---- ui --------------------------------------------------------------------
 
+# FL exposes widPluginEffect / widPluginGenerator (there is no single
+# `widPlugin`). "plugin" defaults to the generator (instrument) editor, which is
+# the usual intent for a channel plugin; the two specific names are also exposed.
 _WIN_IDS = {
-    "mixer": midi.widMixer if hasattr(midi, "widMixer") else 0,
-    "channel_rack": midi.widChannelRack if hasattr(midi, "widChannelRack") else 1,
-    "playlist": midi.widPlaylist if hasattr(midi, "widPlaylist") else 2,
-    "piano_roll": midi.widPianoRoll if hasattr(midi, "widPianoRoll") else 3,
-    "browser": midi.widBrowser if hasattr(midi, "widBrowser") else 4,
-    "plugin": midi.widPlugin if hasattr(midi, "widPlugin") else 6,
+    "mixer": getattr(midi, "widMixer", 0),
+    "channel_rack": getattr(midi, "widChannelRack", 1),
+    "playlist": getattr(midi, "widPlaylist", 2),
+    "piano_roll": getattr(midi, "widPianoRoll", 3),
+    "browser": getattr(midi, "widBrowser", 4),
+    "plugin": getattr(midi, "widPluginGenerator", 7),
+    "plugin_generator": getattr(midi, "widPluginGenerator", 7),
+    "plugin_effect": getattr(midi, "widPluginEffect", 6),
 }
 
 
 def h_ui_focused(_):
-    try:
-        return {
-            "window_id": ui.getFocused(-1),
-            "visible": bool(ui.isInPopupMenu() == 0),
-        }
-    except Exception:
-        return {}
+    # ui.getFocused(widget) returns whether THAT widget is focused, so scan the
+    # known windows to find which one currently has focus.
+    focused_name = None
+    focused_id = None
+    for name, wid in _WIN_IDS.items():
+        try:
+            if ui.getFocused(wid) == 1:
+                focused_name = name
+                focused_id = wid
+                break
+        except Exception:
+            pass
+    return {
+        "focused_window": focused_name,
+        "window_id": focused_id,
+        "focused_form_id": _safe(ui.getFocusedFormID),
+        "in_popup_menu": bool(_safe(ui.isInPopupMenu) == 1),
+    }
 
 
 def h_ui_show_window(p):
@@ -1700,6 +1836,12 @@ def OnIdle():
             client.sendall(_pack_frame(resp))
         except Exception as e:
             _log("failed to send response: %s" % e)
+
+    # apply any due (non-blocking) automation points
+    try:
+        _process_automation()
+    except Exception as e:
+        _log("automation processing error: %s" % e)
 
     # push transport notifications every ~0.5s when playing
     now = time.monotonic()

@@ -9,7 +9,8 @@ from mcp.server.fastmcp import FastMCP
 from ..bridge_client import get_client
 
 
-WindowName = Literal["mixer", "channel_rack", "playlist", "piano_roll", "browser", "plugin"]
+WindowName = Literal["mixer", "channel_rack", "playlist", "piano_roll", "browser",
+                     "plugin", "plugin_generator", "plugin_effect"]
 
 
 def register(mcp: FastMCP) -> None:

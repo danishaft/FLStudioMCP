@@ -121,7 +121,9 @@ What the installer does:
    `%USERPROFILE%\Documents\Image-Line\FL Studio\Settings\Hardware\fLMCP Bridge\`
 2. Copies `fl_bridge/piano_roll/ComposeWithLLM.pyscript` to
    `...\Settings\Piano roll scripts\`
-3. Creates `.venv\` and installs the MCP package editable.
+3. Creates `.venv\` and installs the MCP package editable, **with the
+   `[audio,gui]` extras** (voice-to-MIDI + audio analysis). Pass `-SkipAudio`
+   to install the core only.
 4. Adds an `fl-studio-mcp` entry to `%APPDATA%\Claude\claude_desktop_config.json`
    (and to Claude Code's config if present).
 
@@ -202,7 +204,7 @@ Or the interactive route — Claude opens the GUI:
 voice_open_gui()   # Dear PyGui window with live waveform + pitch readout
 ```
 
-## Tool catalogue (160+)
+## Tool catalogue (159 tools + 7 resources)
 
 Full reference with signatures: [`docs/TOOLS.md`](docs/TOOLS.md).
 
@@ -263,12 +265,16 @@ before issuing edits.
 python -m venv .venv
 .venv/Scripts/activate        # Windows
 # source .venv/bin/activate   # macOS / Linux
-pip install -e .
+pip install -e ".[dev]"       # core + pytest (add [audio,gui] for the full stack)
 pytest
 ```
 
-Tests in `tests/` run entirely offline — the bridge is faked, so you don't
-need FL Studio running to execute the suite.
+Tests in `tests/` run entirely offline — the TCP bridge is faked, the FL-side
+script is imported with its FL-only modules stubbed out, and the core server
+builds without the audio extras. You don't need FL Studio (or numpy/librosa)
+running to execute the suite.
+
+See [`CHANGELOG.md`](CHANGELOG.md) for what changed between releases.
 
 ## Contributing
 

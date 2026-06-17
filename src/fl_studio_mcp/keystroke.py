@@ -8,50 +8,37 @@ falls back to a no-op and relies on user pressing the hotkey manually.
 from __future__ import annotations
 
 import logging
-import os
 import sys
 import time
-from pathlib import Path
 
 log = logging.getLogger("fl_studio_mcp.keystroke")
 
 HOTKEY_NAME = "Ctrl+Alt+Y (Win) / Cmd+Opt+Y (Mac)"
 
-_PR_REQUEST_FILE = Path(os.path.expandvars(
-    r"%USERPROFILE%\Documents\Image-Line\FL Studio\Settings\Piano roll scripts\fLMCP_request.json"
-)) if sys.platform == "win32" else Path.home() / "Documents/Image-Line/FL Studio/Settings/Piano roll scripts/fLMCP_request.json"
 
-_PR_STATE_FILE = _PR_REQUEST_FILE.with_name("fLMCP_state.json")
+# The canonical request/state file locations and the state-polling helpers live
+# in `file_bridge` (single source of truth). These thin wrappers are kept for
+# back-compat with any code / docs that referenced them here.
+
+def request_file():
+    from .file_bridge import REQUEST_FILE
+    return REQUEST_FILE
 
 
-def request_file() -> Path:
-    return _PR_REQUEST_FILE
-
-
-def state_file() -> Path:
-    return _PR_STATE_FILE
+def state_file():
+    from .file_bridge import STATE_FILE
+    return STATE_FILE
 
 
 def clear_state() -> None:
-    try:
-        if _PR_STATE_FILE.exists():
-            _PR_STATE_FILE.unlink()
-    except Exception:
-        pass
+    from .file_bridge import clear_state as _clear_state
+    _clear_state()
 
 
 def wait_for_state(deadline_sec: float = 3.0) -> dict | None:
     """Poll for the state file produced by the piano-roll pyscript."""
-    import json
-    end = time.monotonic() + deadline_sec
-    while time.monotonic() < end:
-        if _PR_STATE_FILE.exists():
-            try:
-                return json.loads(_PR_STATE_FILE.read_text(encoding="utf-8"))
-            except Exception:
-                pass
-        time.sleep(0.05)
-    return None
+    from .file_bridge import wait_for_state as _wait_for_state
+    return _wait_for_state(deadline_sec)
 
 
 def send_hotkey_windows() -> bool:
