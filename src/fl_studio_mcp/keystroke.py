@@ -50,7 +50,6 @@ def send_hotkey_windows() -> bool:
         import ctypes.wintypes as w
 
         user32 = ctypes.WinDLL("user32", use_last_error=True)
-        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
 
         # 1) Find FL Studio window
         target_hwnd = [0]

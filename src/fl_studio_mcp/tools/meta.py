@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from mcp.server.fastmcp import FastMCP
 
-from ..bridge_client import BridgeClient, get_client
+from ..bridge_client import get_client
 from ..file_bridge import is_installed as pr_installed, read_state as pr_state, PR_DIR
 
 

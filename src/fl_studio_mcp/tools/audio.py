@@ -11,8 +11,7 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 from mcp.server.fastmcp import FastMCP
 
@@ -22,15 +21,12 @@ from ..audio_analysis import (
 )
 from ..file_bridge import stage_and_run
 from ..voice_to_midi import (
-    Note,
     SCALE_INTERVALS,
     drop_low_confidence,
     ensure_audio_deps,
     ensure_polyphonic_deps,
     notes_as_piano_roll,
-    quantize as quantize_notes,
     snap_to_scale,
-    transcribe_monophonic,
     transpose,
 )
 

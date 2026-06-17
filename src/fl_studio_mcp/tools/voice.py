@@ -11,7 +11,7 @@ Workflow:
 
 from __future__ import annotations
 
-from typing import Literal, Optional
+from typing import Optional
 
 from mcp.server.fastmcp import FastMCP
 

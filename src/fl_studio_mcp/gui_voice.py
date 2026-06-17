@@ -11,8 +11,6 @@ Run with:
 from __future__ import annotations
 
 import math
-import os
-import queue
 import sys
 import tempfile
 import threading

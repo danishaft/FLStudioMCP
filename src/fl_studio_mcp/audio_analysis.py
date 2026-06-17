@@ -15,6 +15,7 @@ import os
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 # numpy / librosa / soundfile are heavy optional deps (the `audio` extra) and are
 # imported lazily inside the functions that need them, so importing this module
@@ -70,8 +71,8 @@ class AudioAnalysis:
         }
 
 
-def load_audio(path: str | Path, target_sr: int = 22050) -> tuple[np.ndarray, int]:
-    """Load any audio file (WAV/MP3/FLAC/OGG) as mono float32."""
+def load_audio(path: str | Path, target_sr: int = 22050) -> tuple[Any, int]:
+    """Load any audio file (WAV/MP3/FLAC/OGG) as mono float32 (numpy array)."""
     import librosa
     y, sr = librosa.load(str(path), sr=target_sr, mono=True)
     return y, sr

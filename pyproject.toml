@@ -61,6 +61,7 @@ polyphonic = [
 dev = [
     "pytest>=7.0",
     "numpy>=1.23",
+    "ruff>=0.6",
     # Offline FL Studio API stubs — let the test suite import the FL-side bridge
     # and exercise its handlers (catches signature/arity mistakes) without FL.
     "fl-studio-api-stubs>=37",
@@ -84,3 +85,12 @@ packages = ["src/fl_studio_mcp"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+extend-exclude = [".venv", "dist", "build"]
+
+[tool.ruff.lint]
+# Focus on real correctness issues (pyflakes + syntax errors), not style noise.
+# `ruff check .` passes clean across src/, tests/ and fl_bridge/.
+select = ["F", "E9"]
