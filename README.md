@@ -35,7 +35,7 @@ Built from scratch to improve on three earlier community attempts
 | Transport: TCP (no loopMIDI required to run) | ❌ (MIDI + JSON-poll) | ❌ (MIDI) | ❌ (MIDI) | ✅ |
 | Push notifications (transport tick / refresh / project load) | ❌ | ❌ | ❌ | ✅ |
 | PowerShell installer for Windows | ❌ | ❌ | ❌ | ✅ |
-| Tool count | ≈ 60 | ≈ 14 | ≈ 5 | **160+** |
+| Tool count | ≈ 60 | ≈ 14 | ≈ 5 | **159** |
 
 ## Highlights
 
