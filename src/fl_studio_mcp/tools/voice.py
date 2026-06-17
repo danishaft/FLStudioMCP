@@ -21,14 +21,39 @@ from ..voice_to_midi import (
     SCALE_INTERVALS,
     drop_low_confidence,
     ensure_audio_deps,
+    ensure_polyphonic_deps,
     list_input_devices,
     notes_as_piano_roll,
     quantize,
     record_wav,
     snap_to_scale,
     transcribe_monophonic,
+    transcribe_polyphonic,
     transpose,
 )
+
+
+def _check_deps(polyphonic: bool, need_mic: bool = False) -> str | None:
+    """Return a dep-missing message (or None). Recording always needs the audio
+    extra; transcription needs basic-pitch when polyphonic, else the audio extra."""
+    if need_mic:
+        err = ensure_audio_deps(need_mic=True)
+        if err:
+            return err
+    return ensure_polyphonic_deps() if polyphonic else ensure_audio_deps()
+
+
+def _transcribe(path, polyphonic: bool, min_note_sec: float,
+                fmin_hz: float, fmax_hz: float, min_confidence: float = 0.0) -> list[Note]:
+    """Dispatch to the polyphonic (Basic Pitch) or monophonic (pyin) engine."""
+    if polyphonic:
+        return transcribe_polyphonic(
+            path, min_note_sec=min_note_sec, min_confidence=min_confidence,
+            fmin_hz=fmin_hz or None, fmax_hz=fmax_hz or None,
+        )
+    return transcribe_monophonic(
+        path, fmin_hz=fmin_hz, fmax_hz=fmax_hz, min_note_sec=min_note_sec,
+    )
 
 
 def _notes_to_dicts(notes: list[Note]) -> list[dict]:
@@ -88,25 +113,28 @@ def register(mcp: FastMCP) -> None:
         min_note_sec: float = 0.08,
         fmin_hz: float = 65.0,
         fmax_hz: float = 1200.0,
+        polyphonic: bool = False,
     ) -> dict:
-        """Record the mic for `duration_sec` seconds and transcribe the hummed melody.
+        """Record the mic for `duration_sec` seconds and transcribe what you played.
 
         Returns raw notes + the temp WAV path. Use this when you want to inspect
         the transcription before touching the piano roll. 3 short + 1 long
         beep plays at start, 1 beep at stop.
+
+        `polyphonic=True` uses Spotify Basic Pitch (chords / overlapping notes —
+        guitar strums, piano, etc.); needs the `polyphonic` extra. Default is the
+        lightweight monophonic pyin engine (one note at a time — humming).
         """
-        err = ensure_audio_deps(need_mic=True)
+        err = _check_deps(polyphonic, need_mic=True)
         if err:
             return {"ok": False, "error": err}
         wav = record_wav(duration_sec, device=device)
-        notes = transcribe_monophonic(
-            wav, fmin_hz=fmin_hz, fmax_hz=fmax_hz,
-            min_note_sec=min_note_sec,
-        )
+        notes = _transcribe(wav, polyphonic, min_note_sec, fmin_hz, fmax_hz)
         return {
             "wav_path": str(wav),
             "notes": _notes_to_dicts(notes),
             "count": len(notes),
+            "engine": "basic_pitch (polyphonic)" if polyphonic else "pyin (monophonic)",
         }
 
     @mcp.tool()
@@ -115,19 +143,22 @@ def register(mcp: FastMCP) -> None:
         min_note_sec: float = 0.08,
         fmin_hz: float = 65.0,
         fmax_hz: float = 1200.0,
+        polyphonic: bool = False,
     ) -> dict:
-        """Transcribe an existing audio file (wav / flac / mp3 / ogg) into MIDI notes."""
-        err = ensure_audio_deps(need_mic=False)
+        """Transcribe an existing audio file (wav / flac / mp3 / ogg) into MIDI notes.
+
+        `polyphonic=True` uses Spotify Basic Pitch (chords / full-mix content);
+        needs the `polyphonic` extra. Default is the monophonic pyin engine.
+        """
+        err = _check_deps(polyphonic, need_mic=False)
         if err:
             return {"ok": False, "error": err}
-        notes = transcribe_monophonic(
-            audio_path, fmin_hz=fmin_hz, fmax_hz=fmax_hz,
-            min_note_sec=min_note_sec,
-        )
+        notes = _transcribe(audio_path, polyphonic, min_note_sec, fmin_hz, fmax_hz)
         return {
             "audio_path": audio_path,
             "notes": _notes_to_dicts(notes),
             "count": len(notes),
+            "engine": "basic_pitch (polyphonic)" if polyphonic else "pyin (monophonic)",
         }
 
     @mcp.tool()
@@ -141,9 +172,10 @@ def register(mcp: FastMCP) -> None:
         quantize_grid_sec: Optional[float] = None,
         min_confidence: float = 0.35,
         min_note_sec: float = 0.08,
+        polyphonic: bool = False,
         clear_first: bool = True,
     ) -> dict:
-        """Hum a melody into the mic, get it written straight into FL's piano roll.
+        """Hum/play a melody into the mic, get it written straight into FL's piano roll.
 
         Args:
             duration_sec:   how long to record.
@@ -155,8 +187,10 @@ def register(mcp: FastMCP) -> None:
             transpose_semitones: shift all notes up/down after transcription.
             quantize_grid_sec: snap note starts to this grid (e.g. 0.125 = 1/32
                             at 120 BPM, 0.25 = 1/16, 0.5 = 1/8). None = off.
-            min_confidence: drop notes where pyin was uncertain (0..1).
+            min_confidence: drop notes where the engine was uncertain (0..1).
             min_note_sec:   drop notes shorter than this many seconds.
+            polyphonic:     use Spotify Basic Pitch (chords / overlapping notes —
+                            needs the `polyphonic` extra). Default = monophonic pyin.
             clear_first:    clear the open piano roll before writing.
 
         Returns:
@@ -164,7 +198,7 @@ def register(mcp: FastMCP) -> None:
         """
         import time as _t
 
-        err = ensure_audio_deps(need_mic=True)
+        err = _check_deps(polyphonic, need_mic=True)
         if err:
             return {"ok": False, "error": err}
         t0 = _t.monotonic()
@@ -172,7 +206,7 @@ def register(mcp: FastMCP) -> None:
         t_rec = _t.monotonic() - t0
 
         t0 = _t.monotonic()
-        notes = transcribe_monophonic(wav, min_note_sec=min_note_sec)
+        notes = _transcribe(wav, polyphonic, min_note_sec, 65.0, 1200.0)
         t_trans = _t.monotonic() - t0
 
         notes = drop_low_confidence(notes, min_conf=min_confidence)

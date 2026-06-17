@@ -64,6 +64,23 @@ def ensure_audio_deps(need_mic: bool = False) -> str | None:
     return None
 
 
+def ensure_polyphonic_deps() -> str | None:
+    """Return None if Spotify Basic Pitch is importable, else a help message.
+
+    Polyphonic transcription is a heavy, separate extra (the ML model + a
+    runtime — ONNX on Windows, TFLite on Linux, CoreML on macOS).
+    """
+    try:
+        import basic_pitch  # noqa: F401
+    except Exception:
+        return (
+            "polyphonic transcription needs Spotify Basic Pitch (not installed). "
+            "Install it with:  pip install \"fl-studio-mcp[polyphonic]\"  "
+            "(pulls the model + an inference runtime; ~tens of MB)."
+        )
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------
@@ -352,6 +369,110 @@ def transcribe_monophonic(
 
     log.info("transcribed %d notes from %s", len(merged), wav_path)
     return merged
+
+
+# ---------------------------------------------------------------------------
+# Transcription (polyphonic — Spotify Basic Pitch)
+# ---------------------------------------------------------------------------
+
+def _basic_pitch_to_notes(note_events, midi_data=None,
+                          min_note_sec: float = 0.0,
+                          min_confidence: float = 0.0) -> list["Note"]:
+    """Convert Basic Pitch output to a sorted list of Note.
+
+    Pure / dependency-free so it can be unit-tested without basic-pitch.
+
+    `note_events` is Basic Pitch's list of tuples
+    ``(start_s, end_s, pitch_midi, amplitude_0_1, pitch_bends)`` — we use the
+    first four fields. If it is empty/unusable we fall back to `midi_data`, a
+    `pretty_midi.PrettyMIDI`-like object (``.instruments[*].notes[*]`` with
+    ``.pitch / .start / .end / .velocity``), whose API is very stable.
+    """
+    notes: list[Note] = []
+
+    used_events = False
+    for ev in (note_events or []):
+        try:
+            start = float(ev[0])
+            end = float(ev[1])
+            pitch = int(ev[2])
+            amp = float(ev[3]) if len(ev) > 3 and ev[3] is not None else 0.8
+        except (TypeError, ValueError, IndexError):
+            continue
+        dur = end - start
+        if dur < min_note_sec:
+            continue
+        conf = max(0.0, min(1.0, amp))
+        if conf < min_confidence:
+            continue
+        notes.append(Note(
+            midi=max(0, min(127, pitch)),
+            start_sec=round(start, 4),
+            duration_sec=round(dur, 4),
+            velocity=round(0.5 + 0.45 * conf, 3),
+            confidence=round(conf, 3),
+        ))
+        used_events = True
+
+    if not used_events and midi_data is not None:
+        for inst in getattr(midi_data, "instruments", []) or []:
+            for n in getattr(inst, "notes", []) or []:
+                try:
+                    dur = float(n.end) - float(n.start)
+                    conf = max(0.0, min(1.0, int(n.velocity) / 127.0))
+                except (TypeError, ValueError, AttributeError):
+                    continue
+                if dur < min_note_sec or conf < min_confidence:
+                    continue
+                notes.append(Note(
+                    midi=max(0, min(127, int(n.pitch))),
+                    start_sec=round(float(n.start), 4),
+                    duration_sec=round(dur, 4),
+                    velocity=round(0.5 + 0.45 * conf, 3),  # same mapping as the events path
+                    confidence=round(conf, 3),
+                ))
+
+    notes.sort(key=lambda x: (x.start_sec, x.midi))
+    return notes
+
+
+def transcribe_polyphonic(
+    audio_path: str | Path,
+    onset_threshold: float = 0.5,
+    frame_threshold: float = 0.3,
+    min_note_sec: float = 0.12,
+    min_confidence: float = 0.0,
+    fmin_hz: float | None = None,
+    fmax_hz: float | None = None,
+) -> list["Note"]:
+    """Polyphonic transcription via Spotify Basic Pitch.
+
+    Unlike `transcribe_monophonic` (one note at a time), this keeps overlapping
+    notes — chords, strums, full-song melodic content. Needs the `polyphonic`
+    extra; callers should gate on `ensure_polyphonic_deps()` first.
+
+    `onset_threshold` / `frame_threshold` (0..1) trade off recall vs. spurious
+    notes; raise them if you get too many ghost notes.
+    """
+    from basic_pitch.inference import predict
+
+    try:
+        _model_output, midi_data, note_events = predict(
+            str(audio_path),
+            onset_threshold=onset_threshold,
+            frame_threshold=frame_threshold,
+            minimum_note_length=max(0.0, min_note_sec) * 1000.0,  # Basic Pitch wants ms
+            minimum_frequency=fmin_hz,
+            maximum_frequency=fmax_hz,
+        )
+    except Exception as e:
+        raise RuntimeError(f"Basic Pitch transcription failed: {e}") from e
+
+    notes = _basic_pitch_to_notes(note_events, midi_data,
+                                  min_note_sec=min_note_sec,
+                                  min_confidence=min_confidence)
+    log.info("polyphonic-transcribed %d notes from %s", len(notes), audio_path)
+    return notes
 
 
 # ---------------------------------------------------------------------------

@@ -22,6 +22,7 @@ param(
     [switch]$SkipVenv,
     [switch]$SkipClaudeConfig,
     [switch]$SkipAudio,          # skip the heavy voice/audio extras (librosa etc.)
+    [switch]$Polyphonic,         # also install Spotify Basic Pitch (polyphonic transcription)
     [string]$PythonExe = "python"
 )
 
@@ -65,6 +66,17 @@ if (-not $SkipVenv) {
         # work out of the box. These pull librosa / sounddevice / dearpygui etc.
         & $venvPython -m pip install -e "$repo[audio,gui]" --quiet
         Write-Host "    installed fl-studio-mcp (with audio+gui extras) into $venv"
+    }
+
+    if ($Polyphonic) {
+        # Polyphonic transcription (Spotify Basic Pitch). Install the runtime
+        # deps from the extra, then Basic Pitch itself with --no-deps so pip does
+        # not try to pull the TensorFlow build it pins (unavailable on Py3.12);
+        # inference runs on the bundled ONNX runtime instead.
+        Write-Host "    installing polyphonic (Basic Pitch) extra..." -ForegroundColor Cyan
+        & $venvPython -m pip install -e "$repo[polyphonic]" --quiet
+        & $venvPython -m pip install "basic-pitch>=0.4" --no-deps --quiet
+        Write-Host "    installed Basic Pitch (ONNX runtime; polyphonic=True now works)"
     }
 } else {
     Write-Host "[2/4] Skipping venv step."

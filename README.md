@@ -29,6 +29,7 @@ Built from scratch to improve on three earlier community attempts
 | MCP resources (`fl://project`, `fl://mixer`, …) | ◐ | ❌ | ❌ | ✅ |
 | High-level music generators (beats / chords / arps / basslines / melodies) | ❌ | ❌ | ❌ | ✅ |
 | **Voice-to-MIDI** (hum → piano roll) | ❌ | ❌ | ❌ | ✅ |
+| **Polyphonic transcription** (chords, via Basic Pitch) | ❌ | ❌ | ❌ | ✅ |
 | **Audio-file analysis** (tempo / key / onsets / melody) | ❌ | ❌ | ❌ | ✅ |
 | **MP3 → DnB flip** one-shot | ❌ | ❌ | ❌ | ✅ |
 | **Dear PyGui voice GUI** | ❌ | ❌ | ❌ | ✅ |
@@ -52,7 +53,9 @@ Built from scratch to improve on three earlier community attempts
   `gen_emit_melody` — write full musical ideas with one tool call.
 - **Voice-to-MIDI.** Hum a melody, get it in the piano roll. Optional scale
   snap, quantize, transpose, confidence filtering. Standalone Dear PyGui
-  window with live waveform + pitch readout for interactive edits.
+  window with live waveform + pitch readout for interactive edits. Pass
+  `polyphonic=True` to transcribe chords / strums / full-mix content with
+  Spotify Basic Pitch instead of the default monophonic engine.
 - **Audio-file analysis.** Drop any MP3 / WAV / FLAC / OGG on it — get back
   tempo, detected key, onsets, and (optionally) the dominant melody
   transcribed into FL's piano roll.
@@ -152,6 +155,20 @@ Windows installer already installs them; on other platforms:
 ```bash
 pip install "fl-studio-mcp[audio]"
 ```
+
+**Polyphonic transcription** (the `polyphonic=True` flag — chords, strums,
+full-mix content via Spotify Basic Pitch) is a separate, heavier extra. Because
+`basic-pitch` pins a TensorFlow build that doesn't exist on Python 3.12, install
+Basic Pitch with `--no-deps` (it runs on the ONNX runtime — no TensorFlow):
+
+```bash
+pip install "fl-studio-mcp[polyphonic]"
+pip install basic-pitch --no-deps
+```
+
+On Windows, `./scripts/install_windows.ps1 -Polyphonic` does both steps for you.
+Without it, the `polyphonic=True` tools return a clear install hint and the
+default monophonic engine keeps working.
 
 ## Quick check
 

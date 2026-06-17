@@ -1,6 +1,6 @@
 [project]
 name = "fl-studio-mcp"
-version = "0.2.0"
+version = "0.3.0"
 description = "Comprehensive Model Context Protocol server for FL Studio — full control over transport, patterns, channels, mixer, plugins, piano roll, playlist, arrangement, automation and rendering, plus voice-to-MIDI and audio-file analysis."
 requires-python = ">=3.10"
 readme = "README.md"
@@ -39,6 +39,24 @@ audio = [
 ]
 gui = [
     "dearpygui>=1.9",
+]
+# Polyphonic transcription via Spotify Basic Pitch (chords / full-mix content).
+# These are the runtime deps Basic Pitch needs, all of which install cleanly on
+# Python 3.10–3.12. Basic Pitch ITSELF must be installed separately with
+# `pip install basic-pitch --no-deps` because its published metadata pins
+# `tensorflow<2.15.1` for Python>=3.11, which has no compatible build on 3.12;
+# the ONNX runtime below is used for inference instead (no TensorFlow needed).
+# The Windows installer's -Polyphonic switch does both steps automatically.
+polyphonic = [
+    "onnxruntime>=1.16",
+    "librosa>=0.10",
+    "soundfile>=0.12",
+    "numpy>=1.23",
+    "scipy>=1.9",
+    "scikit-learn>=1.1",
+    "pretty_midi>=0.2.10",
+    "mir_eval>=0.7",
+    "mido>=1.2",
 ]
 dev = [
     "pytest>=7.0",

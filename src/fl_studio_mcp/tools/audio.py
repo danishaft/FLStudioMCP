@@ -26,12 +26,22 @@ from ..voice_to_midi import (
     SCALE_INTERVALS,
     drop_low_confidence,
     ensure_audio_deps,
+    ensure_polyphonic_deps,
     notes_as_piano_roll,
     quantize as quantize_notes,
     snap_to_scale,
     transcribe_monophonic,
     transpose,
 )
+
+
+def _check_audio_deps(polyphonic: bool = False) -> str | None:
+    """Audio tools always need the audio extra (librosa); polyphonic also needs
+    Basic Pitch. Returns a dep-missing message or None."""
+    err = ensure_audio_deps()
+    if err:
+        return err
+    return ensure_polyphonic_deps() if polyphonic else None
 
 
 # -------- DnB drum patterns (MIDI drum-map, 32-step per 2 bars) ---------
@@ -122,19 +132,22 @@ def _reese_bass(key_root_midi: int, length_bars: float,
 
 def register(mcp: FastMCP) -> None:
     @mcp.tool()
-    def audio_analyze(path: str, extract_melody: bool = False) -> dict:
-        """Analyze an audio file: tempo, key, onsets, loudness, (optional) melody.
+    def audio_analyze(path: str, extract_melody: bool = False,
+                      polyphonic: bool = False) -> dict:
+        """Analyze an audio file: tempo, key, onsets, loudness, (optional) notes.
 
         Accepts any format libsndfile supports: WAV, FLAC, MP3, OGG, AIFF...
         Returns BPM, detected key (root + major/minor), beat + onset timings,
-        and optionally a monophonic melody transcription.
+        and optionally a transcription. With `polyphonic=True` the transcription
+        is polyphonic (Basic Pitch — chords / all notes; needs the `polyphonic`
+        extra); otherwise it's a single monophonic line (pyin).
         """
-        err = ensure_audio_deps()
+        err = _check_audio_deps(polyphonic and extract_melody)
         if err:
             return {"ok": False, "error": err}
         if not os.path.exists(path):
             return {"ok": False, "error": f"file not found: {path}"}
-        a = analyze_audio(path, extract_melody=extract_melody)
+        a = analyze_audio(path, extract_melody=extract_melody, polyphonic=polyphonic)
         return {"ok": True, **a.as_dict(),
                 "melody_notes": [{"midi": n.midi, "start_sec": n.start_sec,
                                   "duration_sec": n.duration_sec,
@@ -165,20 +178,24 @@ def register(mcp: FastMCP) -> None:
                                    snap_to_detected_key: bool = True,
                                    transpose_semitones: int = 0,
                                    min_confidence: float = 0.3,
+                                   polyphonic: bool = False,
                                    clear_first: bool = True) -> dict:
-        """Extract the dominant monophonic melody from an audio file and push
-        it into the FL piano roll.
+        """Extract notes from an audio file and push them into the FL piano roll.
+
+        Default extracts the dominant monophonic line (pyin). With
+        `polyphonic=True`, Spotify Basic Pitch transcribes chords / all notes
+        (needs the `polyphonic` extra).
 
         If `bpm` is None, the detected BPM is used.  If `snap_to_detected_key`
         is True, all notes are snapped to the detected key of the track.
         """
-        err = ensure_audio_deps()
+        err = _check_audio_deps(polyphonic)
         if err:
             return {"ok": False, "error": err}
         if not os.path.exists(path):
             return {"ok": False, "error": f"file not found: {path}"}
 
-        a = analyze_audio(path, extract_melody=True)
+        a = analyze_audio(path, extract_melody=True, polyphonic=polyphonic)
         effective_bpm = float(bpm) if bpm else max(60.0, a.tempo_bpm or 120.0)
 
         ns = drop_low_confidence(a.notes, min_conf=min_confidence)
@@ -232,27 +249,29 @@ def register(mcp: FastMCP) -> None:
                          dnb_bars: int = 4,
                          include_melody: bool = True,
                          include_bass: bool = True,
+                         polyphonic: bool = False,
                          clear_first: bool = True) -> dict:
         """One-shot: take any audio file and turn it into a DnB flip in the
         FL piano roll.
 
         Pipeline:
-          1. Analyze the file (tempo, key, melody).
+          1. Analyze the file (tempo, key, melody/notes).
           2. Emit a DnB drum groove at `target_bpm`, `dnb_bars` bars long.
           3. (optional) Add the extracted melody, quantized to the detected
-             key, on top.
+             key, on top. `polyphonic=True` captures chords (Basic Pitch; needs
+             the `polyphonic` extra) instead of a single line.
           4. (optional) Drop in a sub-bass on the detected root.
 
         Note: everything is written into the currently-open piano roll
         (single channel). For a proper mix, duplicate the channel in FL and
         route by MIDI range (drums 36-51, bass < 40, melody > 55).
         """
-        err = ensure_audio_deps()
+        err = _check_audio_deps(polyphonic and include_melody)
         if err:
             return {"ok": False, "error": err}
         if not os.path.exists(audio_path):
             return {"ok": False, "error": f"file not found: {audio_path}"}
-        a = analyze_audio(audio_path, extract_melody=include_melody)
+        a = analyze_audio(audio_path, extract_melody=include_melody, polyphonic=polyphonic)
 
         notes: list[dict] = []
 

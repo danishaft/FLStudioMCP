@@ -20,7 +20,7 @@ from pathlib import Path
 # imported lazily inside the functions that need them, so importing this module
 # (e.g. when the MCP server registers the audio tools) does not require them.
 
-from .voice_to_midi import Note, transcribe_monophonic
+from .voice_to_midi import Note, transcribe_monophonic, transcribe_polyphonic
 
 log = logging.getLogger("fl_studio_mcp.audio_analysis")
 
@@ -79,8 +79,14 @@ def load_audio(path: str | Path, target_sr: int = 22050) -> tuple[np.ndarray, in
 
 def analyze_audio(path: str | Path,
                   extract_melody: bool = False,
-                  target_sr: int = 22050) -> AudioAnalysis:
-    """Full analysis: tempo, key, onsets, loudness, (optional) melody."""
+                  target_sr: int = 22050,
+                  polyphonic: bool = False) -> AudioAnalysis:
+    """Full analysis: tempo, key, onsets, loudness, (optional) melody/notes.
+
+    When `extract_melody` is set, `polyphonic=True` runs Spotify Basic Pitch to
+    capture chords / all notes; otherwise the monophonic pyin engine extracts a
+    single dominant line.
+    """
     import librosa
     import numpy as np
 
@@ -137,12 +143,16 @@ def analyze_audio(path: str | Path,
     )
 
     if extract_melody:
-        # Use pyin on the full mix — best-effort monophonic extraction.
-        # Works well on vocals / lead lines, less so on dense mixes.
-        a.notes = transcribe_monophonic(path, min_note_sec=0.1,
-                                        merge_gap_sec=0.15,
-                                        semitone_tolerance=1.2,
-                                        hysteresis_sec=0.08)
+        if polyphonic:
+            # Basic Pitch: polyphonic, captures chords / all notes in the mix.
+            a.notes = transcribe_polyphonic(path, min_note_sec=0.1)
+        else:
+            # pyin on the full mix — best-effort monophonic extraction.
+            # Works well on vocals / lead lines, less so on dense mixes.
+            a.notes = transcribe_monophonic(path, min_note_sec=0.1,
+                                            merge_gap_sec=0.15,
+                                            semitone_tolerance=1.2,
+                                            hysteresis_sec=0.08)
 
     return a
 

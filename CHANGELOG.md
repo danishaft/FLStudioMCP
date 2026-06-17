@@ -3,6 +3,32 @@
 All notable changes to fLMCP are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] — 2026-06-17
+
+### Added — polyphonic transcription (Spotify Basic Pitch)
+
+- **`polyphonic=True` flag** on `voice_record_and_transcribe`,
+  `voice_transcribe_file`, `voice_to_piano_roll`, `audio_analyze`,
+  `audio_melody_to_piano_roll` and `song_to_dnb_flip`. When set, transcription
+  uses Spotify Basic Pitch (ML, polyphonic) instead of the default monophonic
+  pyin engine — so chords, guitar strums, piano and full-mix melodic content
+  come through with overlapping notes preserved. Default stays monophonic
+  (lightweight, no extra deps). This finally makes `song_to_dnb_flip`'s melody
+  extraction faithful to chordal sources.
+- New engine functions `transcribe_polyphonic()` and the pure, unit-tested
+  converter `_basic_pitch_to_notes()` in `voice_to_midi.py`; `analyze_audio()`
+  gained a `polyphonic` parameter. Verified end-to-end against the real Basic
+  Pitch library (a C-major triad transcribes to 3 simultaneous notes).
+- New `[polyphonic]` extra with the Basic Pitch runtime deps, and a
+  `-Polyphonic` switch on the Windows installer.
+  - **Note:** `pip install basic-pitch` is broken on Python 3.12 (it pins
+    `tensorflow<2.15.1`, which has no 3.12 build). fLMCP installs Basic Pitch
+    with `--no-deps` and runs inference on the **ONNX** runtime instead (no
+    TensorFlow). The installer's `-Polyphonic` switch does this automatically;
+    manual users run `pip install "fl-studio-mcp[polyphonic]"` then
+    `pip install basic-pitch --no-deps`.
+- Tools now report which `engine` produced the notes.
+
 ## [0.2.0] — 2026-06-17
 
 A correctness, robustness and testability pass. Every change below was verified

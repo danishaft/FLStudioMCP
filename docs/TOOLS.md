@@ -143,21 +143,27 @@ amen_break / rock)
 
 ## Voice-to-MIDI (5)
 
+All transcription tools take `polyphonic: bool = False`. Default is the
+lightweight monophonic pyin engine (one note at a time — humming). Set
+`polyphonic=True` to use Spotify Basic Pitch (chords / strums / full-mix
+content, overlapping notes preserved) — requires the `polyphonic` extra; tools
+return a structured install hint if it's missing.
+
 `voice_open_gui` — launch the Dear PyGui window (live waveform + pitch, send to FL)
 `voice_list_devices` — enumerate microphones
-`voice_record_and_transcribe(duration_sec, device, min_note_sec, fmin_hz, fmax_hz)` — record + pyin transcribe, returns raw notes + wav path
-`voice_transcribe_file(audio_path, ...)` — transcribe an existing audio file
-`voice_to_piano_roll(duration_sec, bpm, device, scale_root, scale, transpose_semitones, quantize_grid_sec, min_confidence, clear_first)` — one-shot: capture + transcribe + scale-snap + quantize + write into the piano roll
+`voice_record_and_transcribe(duration_sec, device, min_note_sec, fmin_hz, fmax_hz, polyphonic)` — record + transcribe, returns raw notes + wav path
+`voice_transcribe_file(audio_path, min_note_sec, fmin_hz, fmax_hz, polyphonic)` — transcribe an existing audio file
+`voice_to_piano_roll(duration_sec, bpm, device, scale_root, scale, transpose_semitones, quantize_grid_sec, min_confidence, min_note_sec, polyphonic, clear_first)` — one-shot: capture + transcribe + scale-snap + quantize + write into the piano roll
 `voice_notes_to_piano_roll(notes, bpm, scale_root, scale, transpose_semitones, quantize_grid_sec, clear_first)` — push a pre-transcribed note list (from `voice_record_and_transcribe`) with optional scale-snap / transpose / quantize. Pure-Python: does **not** require the audio extras.
 
 ## Audio analysis + DnB (5)
 
-`audio_analyze(path, extract_melody)` — tempo, key, onsets, loudness, optional melody; works on WAV / FLAC / MP3 / OGG / AIFF
+`audio_analyze(path, extract_melody, polyphonic)` — tempo, key, onsets, loudness, optional transcription (mono melody, or polyphonic notes with `polyphonic=True`); works on WAV / FLAC / MP3 / OGG / AIFF
 `audio_slice(path, output_dir, max_slices)` — chop audio at onsets into individual WAVs (drag straight into the channel rack)
-`audio_melody_to_piano_roll(path, bpm, snap_to_detected_key, transpose_semitones, min_confidence, clear_first)` — extract dominant melody and push into FL
+`audio_melody_to_piano_roll(path, bpm, snap_to_detected_key, transpose_semitones, min_confidence, polyphonic, clear_first)` — extract notes (dominant melody, or polyphonic chords with `polyphonic=True`) and push into FL
 `gen_list_dnb_styles` — list DnB drum presets (`amen`, `think`, `modern`, `halftime`)
 `gen_emit_dnb_groove(style, repeats, clear_first)` — emit a 2-bar DnB drum pattern (MIDI: 36 kick, 38 snare, 42 clhat, 46 ophat, 51 ride)
-`song_to_dnb_flip(audio_path, target_bpm, dnb_style, dnb_bars, include_melody, include_bass, clear_first)` — one-shot: MP3 → DnB drum loop + sub-bass on detected root + quantized melody
+`song_to_dnb_flip(audio_path, target_bpm, dnb_style, dnb_bars, include_melody, include_bass, polyphonic, clear_first)` — one-shot: MP3 → DnB drum loop + sub-bass on detected root + quantized melody (`polyphonic=True` keeps chords)
 
 ## MCP resources (7)
 

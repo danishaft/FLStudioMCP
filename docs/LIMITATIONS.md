@@ -124,6 +124,19 @@ error: "...not available"}` rather than raising.
   as `0xRRGGBB`; fLMCP accepts `#RRGGBB` / `rgb(r,g,b)` / `[r,g,b]` / int and
   always returns `#RRGGBB`. (Versions ≤ 0.1.0 swapped red and blue — fixed.)
 
+### Voice / audio transcription
+- ✅ Monophonic (default): `librosa` pyin — light, no model, great for humming /
+  single melodic lines.
+- ✅ Polyphonic (`polyphonic=True`): Spotify Basic Pitch — chords, strums,
+  full-mix content. Optional `polyphonic` extra.
+- ⚠️ **Basic Pitch install on Python 3.12:** `pip install basic-pitch` fails —
+  it pins `tensorflow<2.15.1`, which has no Python 3.12 build. fLMCP installs it
+  with `--no-deps` and runs inference on the **ONNX** runtime (no TensorFlow).
+  Use `install_windows.ps1 -Polyphonic`, or:
+  `pip install "fl-studio-mcp[polyphonic]"` then `pip install basic-pitch --no-deps`.
+  When Basic Pitch is absent, `polyphonic=True` returns a structured install
+  hint and the monophonic engine still works.
+
 ### TCP transport
 - Single-connection at a time: multiple concurrent MCP clients will serialize
   through one TCP conn. This keeps FL's main thread predictable; typically
