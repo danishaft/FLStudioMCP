@@ -1,0 +1,10 @@
+{
+  "name": "flmcp dev",
+  "image": "mcr.microsoft.com/devcontainers/python:3.13",
+  "postCreateCommand": "pip install -e '.[dev]' && pip install 'mcp[cli]>=1.2.0,<2.0' && pip install PyFLP",
+  "customizations": {
+    "vscode": {
+      "extensions": ["ms-python.python", "ms-python.black-formatter"]
+    }
+  }
+}
