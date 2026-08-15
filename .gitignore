@@ -66,3 +66,6 @@ fLMCP_state.json
 *.mp3
 *.ogg
 !tests/**/fixtures/*.wav
+
+# --- clihub-generated CLI binary -------------------------------------
+out/
