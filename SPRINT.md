@@ -204,12 +204,31 @@ Write in codespace; verify on Windows + FL. These cover the WALL items.
 
 ### Borrowed from 404kidwiz/fl-studio-mcp (all code-verified 2026-08-17)
 
-Patterns confirmed REAL in their repo (worth copying; will fold into L2 as needed):
+Full comparison done: their 166 tools = ~60 real (SysEx bridge + GUI + theory) + ~50
+narrative-only fakes (pure `return "f-string"` — no code executes) + ~56 thin/dry-run.
+Verified fakes include: `fl_auto_master`, `fl_eq_reference_match`, `fl_dynamic_soundscape_generator`,
+`fl_auto_foley_foley_designer`, `fl_resampler_glitch_generator`, `fl_generative_lyric_video_sync`,
+`fl_holographic_mixer_ui`, `fl_multiband_stereo_widener_matrix`, `fl_project_version_control`,
+`fl_sidechain_matrix_wizard`, `fl_vocal_chain_cloner`, `fl_gross_beat_automator`, `fl_film_score_sync`,
+`fl_hardware_synth_patch_dumper`, `fl_neuro_genre_fusion`, `fl_adaptive_live_looping`,
+`fl_plugin_latency_compensator`, `fl_auto_mix_balance`, `fl_auto_sidechain`, `fl_vocal_chain_builder`,
+`fl_stem_separation_remix` (stems.py literally logs "Simulating Demucs CLI"), `fl_generate_sequence`
+(mocked transformer), VLM part of `fl_vision_read_vst` (hardcoded mock string).
+Real ones worth copying:
+
+Patterns confirmed REAL in their repo:
 - [ ] **Window-relative click with DPI scaling** — their `automation/windows.py:click_at`: PowerShell FindWindow(`TFruityLoopsInstance`) → GetWindowRect → DPI scale (`DpiX/96`) → `mouse_event`. Our L2 equivalent on Linux: `xdotool getwindowgeometry` + scaled mouse move; keep the retry wrapper
 - [ ] **F8 plugin-load flow** — their `windows.py:load_plugin`: focus FL → SendKeys `{F8}` → type name (SendKeys-escaped) → ENTER. Same approach we planned for L2 `plugin-load`; theirs is proven reference code
 - [ ] **Flaky-GUI retry wrapper** — their `gui_automation.py:_with_retry`: 2 retries, 200 ms delay. Adopt for every L2 GUI tool
 - [ ] **`ui-reset-layout` / `ui-dismiss-popup`** — Ctrl+Shift+H and ENTER/ESC via SendKeys after AppActivate (theirs: `reset_ui`, `dismiss_popup`). We get the same from FL API + keystroke layer; keep ours
 - **Lesson:** their `fl_show_window`/`fl_browser_nav` go over MIDI SysEx; ours use the real FL Python API (`ui_show_window`) — no need to copy
+
+VERIFIED worth copying (from full code review 2026-08-17):
+- [ ] **Systematic dry-run previews** — theirs (`channels.py`, `pattern_control.py`): every tool returns realistic sample data when `dry_run=true` or bridge is down, tagged `"source": "dry_run_preview"`. Adopt for our L1/L2 tools so tests and demos work without FL
+- [ ] **FL user-library scanner** — their `library.py` scans FL user folders (Presets/Scores, Channel presets, Mixer presets, Projects/Templates, Audio) and returns files with sizes. Real code. New L3 tool candidate: `flp-library-scan` (paths + file listing, no FL needed)
+- [ ] **VST preset coordinate librarian** — their `presets.py`: JSON database of VST preset names → click coordinates (+ tags/notes), stored in FL's Presets folder (`mcp_presets.json`). Pairs with our vision-click tools. L2 candidate
+- [ ] **Euclidean drum pattern + Markov melody generators** — their `theory.py` has real implementations: `generate_euclidean_rhythm` (Bresenham spacing, rotation) and `generate_markov_melody` (scale-constrained, start-pitch aware). Add as L1 generator tools: `gen_emit_euclidean_drums`, `gen_emit_markov_melody`
+- [ ] **VST directory scanner** — their `vst_scanner.py` scans system VST/VST3 dirs + FL user data path. Fold into our L2 `plugin-list` / `plugin-scan`
 
 ### Vision tools (from 404kidwiz — idea good, their implementation is a MOCK)
 
