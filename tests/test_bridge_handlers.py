@@ -51,6 +51,13 @@ CASES = [
     ("channels.setStepSequence", {"index": 0, "steps": [1, 0, 1, 0]}),
     ("channels.clearStepSequence", {"index": 0}),
     ("channels.quickQuantize", {"index": 0}),
+    ("channels.stepValue", {"index": 0, "step": 0, "param": "velocity"}),          # read path
+    ("channels.stepValue", {"index": 0, "step": 2, "param": "velocity", "value": 100}),
+    ("channels.stepValue", {"index": 0, "step": 0, "param": "finepitch", "value": 120, "pattern": 2}),
+    ("mixer.invertPhase", {"track": 1}),                        # toggle path
+    ("mixer.invertPhase", {"track": 1, "inverted": True}),      # explicit path
+    ("mixer.swapChannels", {"track": 1}),
+    ("mixer.swapChannels", {"track": 1, "swapped": True}),
     ("mixer.arm", {"track": 1, "armed": True}),
     ("mixer.arm", {"track": 1}),                            # toggle path
     ("mixer.setVolume", {"track": 1, "volume": 0.8}),

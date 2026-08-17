@@ -82,6 +82,19 @@ def register(mcp: FastMCP) -> None:
                                  index=index, note=note, velocity=velocity, duration_ms=duration_ms)
 
     @mcp.tool()
+    def channel_step_value(index: int, param: str = "velocity", step: int = 0,
+                           value: Optional[int] = None, pattern: int = 1) -> dict:
+        """Read/write one step-sequencer graph-editor value (channel-rack event editor).
+
+        `param`: pitch, velocity, release, finepitch (0-240), pan, modx, mody, tickshift.
+        Omitting `value` reads the current value; providing it writes (range-checked).
+        Writes need the 1-indexed `pattern` number.
+        """
+        return get_client().call("channels.stepValue",
+                                 index=index, param=param, step=step,
+                                 value=value, pattern=pattern)
+
+    @mcp.tool()
     def channel_get_grid_bit(index: int, position: int) -> dict:
         """Read a single step-sequencer bit (position is 0-based step within the pattern)."""
         return get_client().call("channels.getGridBit", index=index, position=position)

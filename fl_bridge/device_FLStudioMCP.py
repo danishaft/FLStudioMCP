@@ -636,6 +636,46 @@ def h_channels_trigger_note(p):
     return {"triggered": True, "note": note}
 
 
+_STEP_PARAMS = {
+    "pitch": 0, "velocity": 1, "release": 2, "finepitch": 3, "pan": 4,
+    "modx": 5, "mody": 6, "tickshift": 7,
+}
+_STEP_PARAM_RANGES = {
+    "pitch": (0, 127), "velocity": (0, 127), "release": (0, 127),
+    "finepitch": (0, 240), "pan": (0, 127), "modx": (0, 127),
+    "mody": (0, 127), "tickshift": (0, 96),
+}
+
+
+def h_channels_step_value(p):
+    """Read/write one step-sequencer graph-editor value (the channel-rack
+    equivalent of the piano-roll event editor).
+
+    `param` is one of pitch / velocity / release / finepitch / pan / modx /
+    mody / tickshift. With `value` omitted it reads the current value via
+    getCurrentStepParam; otherwise it writes via setStepParameterByIndex
+    (which requires the 1-indexed pattern number)."""
+    idx = int(p["index"])
+    step = int(p.get("step", 0))
+    param = str(p.get("param", "velocity")).lower()
+    if param not in _STEP_PARAMS:
+        raise ValueError("param must be one of %s" % sorted(_STEP_PARAMS))
+    param_id = _STEP_PARAMS[param]
+    value = p.get("value")
+    if value is None:
+        return {
+            "index": idx, "step": step, "param": param,
+            "value": channels.getCurrentStepParam(idx, step, param_id),
+        }
+    value = int(value)
+    lo, hi = _STEP_PARAM_RANGES[param]
+    if not lo <= value <= hi:
+        raise ValueError("value for %r must be %d..%d, got %d" % (param, lo, hi, value))
+    pat = int(p.get("pattern", 1))
+    channels.setStepParameterByIndex(idx, pat, step, param_id, value)
+    return {"index": idx, "step": step, "param": param, "value": value, "pattern": pat}
+
+
 def h_channels_get_grid_bit(p):
     idx = int(p["index"]); pos = int(p["position"])
     return {"value": channels.getGridBit(idx, pos, True) == 1}
@@ -882,6 +922,30 @@ def h_mixer_link_channel(p):
     else:
         channels.setTargetFxTrack(ch, tr)
     return {"channel": ch, "track": tr}
+
+
+def h_mixer_invert_phase(p):
+    """Invert the phase of a mixer track's audio input (or read the state).
+    FL's revTrackPolarity defaults to False (not a toggle), so an omitted
+    `inverted` toggles from the current state."""
+    idx = int(p["track"])
+    inverted = p.get("inverted")
+    if inverted is None:
+        inverted = not mixer.isTrackRevPolarity(idx)
+    mixer.revTrackPolarity(idx, bool(inverted))
+    return {"track": idx, "inverted": mixer.isTrackRevPolarity(idx)}
+
+
+def h_mixer_swap_channels(p):
+    """Swap the left/right channels of a mixer track (or read the state).
+    FL's swapTrackChannels defaults to False (not a toggle), so an omitted
+    `swapped` toggles from the current state."""
+    idx = int(p["track"])
+    swapped = p.get("swapped")
+    if swapped is None:
+        swapped = not mixer.isTrackSwapChannels(idx)
+    mixer.swapTrackChannels(idx, bool(swapped))
+    return {"track": idx, "swapped": mixer.isTrackSwapChannels(idx)}
 
 
 # ---- plugins ---------------------------------------------------------------
@@ -1679,6 +1743,7 @@ _HANDLERS = {
     "channels.setColor": h_channels_set_color,
     "channels.routeToMixer": h_channels_route_to_mixer,
     "channels.triggerNote": h_channels_trigger_note,
+    "channels.stepValue": h_channels_step_value,
     "channels.getGridBit": h_channels_get_grid_bit,
     "channels.setGridBit": h_channels_set_grid_bit,
     "channels.getStepSequence": h_channels_get_step_sequence,
@@ -1704,6 +1769,8 @@ _HANDLERS = {
     "mixer.getEQ": h_mixer_get_eq,
     "mixer.setEQBand": h_mixer_set_eq_band,
     "mixer.linkChannelToTrack": h_mixer_link_channel,
+    "mixer.invertPhase": h_mixer_invert_phase,
+    "mixer.swapChannels": h_mixer_swap_channels,
     # plugins
     "plugins.isValid": h_plugins_is_valid,
     "plugins.name": h_plugins_name,

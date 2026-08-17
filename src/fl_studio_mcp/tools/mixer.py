@@ -99,3 +99,13 @@ def register(mcp: FastMCP) -> None:
     def mixer_link_to_channel(channel: int, track: int, mode: str = "replace") -> dict:
         """Link a channel to a mixer track. mode='replace'|'add'."""
         return get_client().call("mixer.linkChannelToTrack", channel=channel, track=track, mode=mode)
+
+    @mcp.tool()
+    def mixer_invert_phase(track: int, inverted: Optional[bool] = None) -> dict:
+        """Invert the phase of a mixer track's audio input. Omitting `inverted` toggles."""
+        return get_client().call("mixer.invertPhase", track=track, inverted=inverted)
+
+    @mcp.tool()
+    def mixer_swap_channels(track: int, swapped: Optional[bool] = None) -> dict:
+        """Swap the left/right channels of a mixer track. Omitting `swapped` toggles."""
+        return get_client().call("mixer.swapChannels", track=track, swapped=swapped)

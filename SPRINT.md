@@ -9,11 +9,11 @@ time). Keep it short — one or two sentences.
 | Phase | Layer | Total | Done |
 |---|---|---|---|
 | 1 | Layer 3 — Offline PyFLP | 15 | 15 |
-| 2 | Layer 1 — API Bridge | 38 | 0 |
+| 2 | Layer 1 — API Bridge (verified surface) | 3 | 3 |
 | 3 | Layer 2 — GUI Automation | 35 | 0 |
-| | **TOTAL** | **88** | **0** |
+| | **TOTAL** | **53** | **0** |
 
-Current total after sprint: 159 existing + 88 = **247 tools** (~99% software-side coverage).
+Current total after sprint: 159 existing + 53 = **212 tools** (~99% software-side coverage).
 
 ## Where things live
 
@@ -25,8 +25,8 @@ Current total after sprint: 159 existing + 88 = **247 tools** (~99% software-sid
 ## Why this order
 
 1. **Layer 3 first** — every tool gets a passing pytest here in the codespace. Fast wins, zero FL dependency.
-2. **Layer 1 next** — biggest value, dispatch/params unit-testable with a mock bridge. Live-verify on Windows later.
-3. **Layer 2 last** — needs Windows + FL Studio for any real verification.
+2. **Layer 1 next** — the 3 genuinely missing API tools (step values, phase, channel swap); the original 38-tool plan was ~90% imagined — see the verified table in PHASE 2. ~30 items are GUI-only → Layer 2.
+3. **Layer 2 last** — needs Windows + FL Studio for any real verification; absorbs the GUI-only items the API can never do.
 
 ---
 
@@ -77,75 +77,40 @@ No FL needed. Parse/write `.flp` files. All testable with pytest here.
 
 ---
 
-# PHASE 2 — Layer 1: API Bridge (38 tools)
+# PHASE 2 — Layer 1: API Bridge (verified surface)
 
-FL API exposes these; the bridge has no handler yet. Each = handler in
-`device_FLStudioMCP.py` `_HANDLERS` + tool entry in `tools/<category>.py` + test.
+> **Verified against the authoritative IL-Group FL-Studio-API-Stubs docs**
+> (https://il-group.github.io/FL-Studio-API-Stubs/midi_controller_scripting/) and
+> the installed stubs v37.0.1. The original 38-tool plan was written from
+> imagined functions — the sweep below is what FL actually exposes.
+> There is NO `file` module (no export), NO `recording` module (no burn MIDI),
+> no clip-insert functions, and no channel-rack / playlist / arrangement
+> create/delete/move API. Those operations are UI-only → Layer 2 (GUI).
 
-## 2A. Channel Rack (9)
+## Verified API surface (what exists)
 
-- [ ] `channel-clone` — duplicate a channel (`channels.cloneChannel`) — **Lesson:**
-- [ ] `channel-delete` — remove a channel (`channels.removeChannel`) — **Lesson:**
-- [ ] `channel-move-up` — move channel up (`channels.moveChannelUp`) — **Lesson:**
-- [ ] `channel-move-down` — move channel down (`channels.moveChannelDown`) — **Lesson:**
-- [ ] `channel-group` — get/set channel group/filter (`channels.getChannelGroup`/`setChannelGroup`) — **Lesson:**
-- [ ] `channel-step-value` — read/write graph editor per-step velocity/pan (`channels.getStepValue`/`setStepValue`) — **Lesson:**
-- [ ] `channel-swing` — set swing amount (`channels.setSwing`) — **Lesson:**
-- [ ] `channel-burn-midi` — burn arpeggiator output to notes (`recording.burnMIDITo`) — **Lesson:**
-- [ ] `channel-sort` — sort by name/color (`channels.sortByName`/`sortByColor`) — **Lesson:**
+| Area | Real API functions | Status |
+|---|---|---|
+| Channel step values | `channels.getStepParam` / `getCurrentStepParam` / `setStepParameterByIndex` (params: 0=pitch, 1=velocity, 2=release, 3=finepitch, 4=pan, 5=modx, 6=mody, 7=tickshift) | ✅ `channel-step-value` |
+| Mixer phase / stereo | `mixer.revTrackPolarity` (known issue: value defaults to False, not toggle → always pass explicit bool) + `isTrackRevPolarity` | ✅ `mixer-invert-phase` |
+| Mixer phase / stereo | `mixer.swapTrackChannels` (same known issue) + `isTrackSwapChannels` | ✅ `mixer-swap-channels` |
+| Channel→mixer routing | `channels.getTargetFxTrack` / `setTargetFxTrack` | ✅ existing `channel-route-to-mixer` |
+| Mixer routing/sends | `mixer.setRouteTo` / `setRouteToLevel` / `getRouteToLevel` / `getRouteSendActive` / `afterRoutingChanged` | ✅ existing `mixer-route`, `mixer-set-send-level` |
+| Plugin presets | `plugins.nextPreset` / `prevPreset` / `getPresetCount` / `getName` | ✅ existing `plugin-next-preset` / `plugin-prev-preset` / `plugin-preset-count` |
+| Channel note trigger | `channels.midiNoteOn` | ✅ existing `channel-trigger-note` |
+| Everything else in the original 38 | — | ❌ does not exist → Layer 2 GUI or pyscript |
 
-## 2B. Piano Roll (5)
+## What was removed and why (original 38 → 3)
 
-- [ ] `piano-roll-slide` — add/convert slide + portamento notes (slide flag on note events) — **Lesson:**
-- [ ] `piano-roll-color` — set note color groups / MIDI channels (color param on note events) — **Lesson:**
-- [ ] `piano-roll-snap-scale` — snap notes to root+scale (`midi.setKeySignature`) — **Lesson:**
-- [ ] `piano-roll-slice` — slice notes at positions (`midi.sliceNotes`) — **Lesson:**
-- [ ] `piano-roll-events` — edit event editor values / velocity curves (`midi.setEventValue`) — **Lesson:**
+- **→ Layer 2 (GUI only, no API):** channel clone/delete/move-up/move-down/group/swing/sort/burn-midi; mixer add/delete/move-track/track-delay/move-mute-remove-fx-slot; plugin-remove; plugin-preset-file (no `savePreset`/`loadPreset`); playlist add/delete/move/group-track + insert-audio + insert-automation + automation-point; arrangement create/delete; automation create-clip/edit-points/lfo; export-midi (no `file` module).
+- **→ pyscript (already handled):** `piano-roll-slide`, `piano-roll-color` — note-event editing lives in the Piano Roll scripting environment (`fl_bridge/piano_roll/ComposeWithLLM.pyscript`), not the device-script API.
+- **→ nowhere:** `piano-roll-snap-scale` (`midi.setKeySignature` doesn't exist), `piano-roll-slice` (`midi.sliceNotes` doesn't exist), `piano-roll-events` (event-editor values not exposed).
 
-> Note: slide/color/fcut-fres are also reachable via the pyscript
-> (`fl_bridge/piano_roll/ComposeWithLLM.pyscript`) — pick the more robust path per tool.
+## Built (Layer 1 complete: 3 tools + tests, 168 passing)
 
-## 2C. Mixer (9)
-
-- [ ] `mixer-add-track` — create mixer track (`mixers.addTrack`) — **Lesson:**
-- [ ] `mixer-delete-track` — remove mixer track (`mixers.removeTrack`) — **Lesson:**
-- [ ] `mixer-move-track` — reorder tracks (`mixers.moveTrack`) — **Lesson:**
-- [ ] `mixer-invert-phase` — invert phase (`mixers.setPhaseInvert`) — **Lesson:**
-- [ ] `mixer-swap-channels` — swap L/R (`mixers.swapChannels`) — **Lesson:**
-- [ ] `mixer-track-delay` — manual delay offset (`mixers.setTrackDelay`) — **Lesson:**
-- [ ] `mixer-move-fx-slot` — move FX slot up/down (`mixers.moveFXSlot`) — **Lesson:**
-- [ ] `mixer-mute-fx-slot` — mute/bypass FX slot (`mixers.muteFXSlot`) — **Lesson:**
-- [ ] `mixer-remove-fx-slot` — remove plugin from FX slot (`mixers.removeFXSlot`) — **Lesson:**
-
-## 2D. Plugins (2)
-
-- [ ] `plugin-remove` — remove plugin from FX slot (`plugins.remove`) — **Lesson:**
-- [ ] `plugin-preset-file` — save/load plugin presets as files (`plugins.savePreset`/`loadPreset`) — **Lesson:**
-
-## 2E. Playlist (7)
-
-- [ ] `playlist-add-track` — create playlist track (`playlist.addTrack`) — **Lesson:**
-- [ ] `playlist-delete-track` — remove playlist track (`playlist.removeTrack`) — **Lesson:**
-- [ ] `playlist-move-track` — reorder tracks (`playlist.moveTrack`) — **Lesson:**
-- [ ] `playlist-track-group` — group tracks (`playlist.setTrackGroup`) — **Lesson:**
-- [ ] `playlist-insert-audio` — place audio clip (`playlist.insertAudioClip`) — **Lesson:**
-- [ ] `playlist-insert-automation` — create automation clip (`playlist.insertAutomationClip`) — **Lesson:**
-- [ ] `playlist-automation-point` — add/edit automation points (`playlist.setAutomationPoint`) — **Lesson:**
-
-## 2F. Arrangement (2)
-
-- [ ] `arrangement-create` — create arrangement (`arrangements.create`) — **Lesson:**
-- [ ] `arrangement-delete` — remove arrangement (`arrangements.remove`) — **Lesson:**
-
-## 2G. Automation (3)
-
-- [ ] `automation-create-clip` — insert automation clip (`playlist.insertAutomationClip`) — **Lesson:**
-- [ ] `automation-edit-points` — add/edit points (`playlist.setAutomationPoint`) — **Lesson:**
-- [ ] `automation-lfo` — LFO on automation (`playlist.setLFO`) — **Lesson:**
-
-## 2H. Export (1)
-
-- [ ] `export-midi` — export project as MIDI (`file.exportMIDI`) — **Lesson:**
+- [x] `channel-step-value` — read/write graph-editor step values; read via `getCurrentStepParam(index, step, param)`, write via `setStepParameterByIndex(index, patNum, step, param, value)` (needs 1-indexed pattern number); param name→id map with per-param ranges (velocity/pan 0-127, finepitch 0-240, tickshift 0-96). Tests: read/write path, bad param name, out-of-range rejection. — **Lesson:** FL has two scripting environments — channel-rack graph values are device-script API, piano-roll note/event editing is pyscript. Never assume the piano-roll API in device scripts.
+- [x] `mixer-invert-phase` — `revTrackPolarity(idx, bool)`; known issue: omitted value sets False instead of toggling → handler always passes an explicit bool and computes toggle from `isTrackRevPolarity` when `inverted` omitted. — **Lesson:** FL "value=False" defaults silently disable; always pass explicit state.
+- [x] `mixer-swap-channels` — `swapTrackChannels(idx, bool)` with the same toggle workaround via `isTrackSwapChannels`. — **Lesson:** the stubs don't round-trip state (always return False) — tests assert shape + no-crash, real round-trip lives in FL.
 
 ---
 

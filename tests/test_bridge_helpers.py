@@ -79,10 +79,44 @@ def test_handler_table_is_complete():
     for action in [
         "meta.ping", "transport.start", "transport.setTempo",
         "patterns.create", "channels.setColor", "channels.setStepSequence",
+        "channels.stepValue", "mixer.invertPhase", "mixer.swapChannels",
         "mixer.setEQBand", "mixer.arm", "playlist.muteTrack",
         "automation.recordTempo", "pianoroll.addNotes", "ui.focusedWindow",
     ]:
         assert action in bridge._HANDLERS, f"missing handler: {action}"
+
+
+def test_step_value_rejects_bad_param():
+    with pytest.raises(ValueError):
+        bridge._execute("channels.stepValue", {"index": 0, "param": "bogus"})
+
+
+def test_step_value_rejects_out_of_range():
+    with pytest.raises(ValueError):
+        bridge._execute("channels.stepValue", {"index": 0, "param": "velocity", "value": 999})
+
+
+def test_step_value_read_and_write():
+    out = bridge._execute("channels.stepValue", {"index": 0, "step": 3, "param": "pan"})
+    assert "value" in out and out["step"] == 3 and out["param"] == "pan"
+    out = bridge._execute("channels.stepValue",
+                          {"index": 0, "step": 4, "param": "tickshift", "value": 8, "pattern": 2})
+    assert out["value"] == 8 and out["pattern"] == 2
+
+
+def test_invert_phase_and_swap_toggle():
+    # The stubs always report False for isTrack*; we assert the handler
+    # returns the reported state and never crashes (real-FL round-trip is
+    # covered by the known-issue workaround: explicit bool always passed).
+    out = bridge._execute("mixer.invertPhase", {"track": 1, "inverted": True})
+    assert set(out) == {"track", "inverted"}
+    assert out["track"] == 1
+    out = bridge._execute("mixer.invertPhase", {"track": 1})
+    assert "inverted" in out
+    out = bridge._execute("mixer.swapChannels", {"track": 1, "swapped": True})
+    assert set(out) == {"track", "swapped"}
+    out = bridge._execute("mixer.swapChannels", {"track": 1})
+    assert "swapped" in out
 
 
 def test_safe_swallows_exceptions():
