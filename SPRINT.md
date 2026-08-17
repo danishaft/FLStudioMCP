@@ -8,7 +8,7 @@ time). Keep it short — one or two sentences.
 
 | Phase | Layer | Total | Done |
 |---|---|---|---|
-| 1 | Layer 3 — Offline PyFLP | 15 | 0 |
+| 1 | Layer 3 — Offline PyFLP | 15 | 15 |
 | 2 | Layer 1 — API Bridge | 38 | 0 |
 | 3 | Layer 2 — GUI Automation | 35 | 0 |
 | | **TOTAL** | **88** | **0** |
@@ -38,26 +38,42 @@ No FL needed. Parse/write `.flp` files. All testable with pytest here.
 
 - [x] `flp-info` — read project metadata (tempo, key, time sig, title) from `.flp`
   **Lesson:** `.flp` stores NO key/time-sig (report what exists: title, tempo, PPQ, version, comments, artists, genre, URL, licensee, created_on, time_spent). pyflp 2.2.1 crashes on Python 3.13 (empty-enum `__call__`) — patched in `offline/_compat.py`. FLVersion event is ASCII; other TEXT events UTF-16-LE; Licensee is obfuscated in the file (factory mirrors it). Event framing: id<64→1B, 64–127→2B, 128–191→4B, ≥192→size byte+payload. `Project.version` is a `FLVersion` object, not str. Tool: `offline/flp.py:flp_info`, fixture builder: `tests/_flp_factory.py`.
-- [ ] `flp-channels` — list all channels (name, type, plugin) — **Lesson:**
-- [ ] `flp-patterns` — list all patterns (name, id, length) — **Lesson:**
-- [ ] `flp-notes` — extract all MIDI notes per pattern — **Lesson:**
-- [ ] `flp-plugins` — list plugins used (names, tracks, param counts) — **Lesson:**
-- [ ] `flp-samples` — list samples referenced (paths, channel) — **Lesson:**
+- [x] `flp-channels` — list all channels (name, type, plugin)
+  **Lesson:** ChannelRack divides flat events by ChannelID.New (64); every ChannelID/PluginID event after it belongs to that channel. ChannelID.GroupNum (145) must index an existing DisplayGroup event (231, TEXT) or pyflp raises IndexError. `Instrument.plugin` only resolves for VSTPlugin/BooBass/FruitKick/Plucked — other internal names yield `plugin=None` even with valid Data (kept honest in output). `sample_path` is a `PosixPath`, serialize with str(). Empty racks raise KeyError OR NoModelsFound depending on context — central helpers `_channels()`/`_patterns()` catch both.
+- [x] `flp-patterns` — list all patterns (name, id, length)
+  **Lesson:** PatternID.New (65) starts a pattern group; Name (193) is TEXT, Length (164) u32 ticks. `pat.notes` is an iterator; note counts need `len(list(...))`. Patterns without any PatternID.New event: `__iter__` is safe, `__len__` raises NoModelsFound.
+- [x] `flp-notes` — extract all MIDI notes per pattern
+  **Lesson:** NotesEvent (224) = VarInt size + list of 24-byte structs (position u32, flags u16, rack_channel u16, length u32, key u16, group u16, fine_pitch u8, _u1 u8, release u8, midi_channel u8, pan u8, velocity u8, mod_x u8, mod_y u8 — `<IHHIHHBBBBBBBB`). `note.key` returns the note NAME ("C3"); raw MIDI pitch via `note["key"]`. Velocity is raw u8 (0-255).
+- [x] `flp-plugins` — list plugins used (names, tracks, param counts)
+  **Lesson:** PluginID: Color 128, Icon 155, InternalName 201 (TEXT), Name 203, Wrapper 212, Data 213 (opaque, size-prefixed). Params extracted generically from the Data event container (e.g. Plucked: decay/color/normalize/gate/widen). Plucked data = 20 bytes: `<IIIII`.
+- [x] `flp-samples` — list samples referenced (paths, channel)
+  **Lesson:** Sampler channels carry SamplePath (196, TEXT). `channel.type` doesn't exist on pyflp models — the class name (Sampler/Instrument/Layer/Automation) is the reliable type signal.
 
 ## 1B. Project Manipulation (5)
 
-- [ ] `flp-rename` — batch rename channels/patterns/tracks in a `.flp` — **Lesson:**
-- [ ] `flp-tempo` — get/set BPM in a `.flp` — **Lesson:**
-- [ ] `flp-merge` — merge multiple projects into one output file — **Lesson:**
-- [ ] `flp-template` — create a template `.flp` from an existing project — **Lesson:**
-- [ ] `flp-diff` — structural diff between two projects (channels/patterns/params) — **Lesson:**
+- [x] `flp-rename` — batch rename channels/patterns/tracks in a `.flp`
+  **Lesson:** Renaming is `channel.name = x` / `pattern.name = x` — both are settable EventProps (Name 203 / 193); pyflp replaces the existing TEXT event. Channel `name` prefers PluginID.Name over ChannelID._Name. No rename API needed; EventProp setters are the mutation surface. Round-trip verified via re-parse.
+- [x] `flp-tempo` — get/set BPM in a `.flp`
+  **Lesson:** `Project.tempo` is a settable EventProp (event 156, u32 BPM×1000). Save is module-level `pyflp.save(project, path)` — Project has NO save method. Sanity range 10-999 BPM enforced. Round-trip exact (140.25 → 140.25).
+- [x] `flp-merge` — merge multiple projects into one output file
+  **Lesson:** Events are `IndexedEvent(r, e)` dataclasses sorted by root index `r` (byte offset). Merging = renumber B's channel iids (New 64) + pattern iids (New 65) + per-note `rack_channel` (settable StructProp) + ChannelIID (160) by offsets, then re-insert B's events with `r` offset past A's max. Works: 4 channels / 3 patterns merged, notes remapped (verified by re-parse).
+- [x] `flp-template` — create a template `.flp` from an existing project
+  **Lesson:** Strip all PatternID events from the SortedList (`clear()` + `update()`), save. Channels/plugins/tempo survive. Patterns: 0 after.
+- [x] `flp-diff` — structural diff between two projects (channels/patterns/params)
+  **Lesson:** Compare tempo/ppq/channels (iid→name,type,sample_path)/patterns (iid→name,length,note_count) with base/other pairs per field. Empty-rack iteration needs the shared `_channels()` guard.
 
 ## 1C. Generation & Validation (4)
 
-- [ ] `flp-generate` — build a project from a JSON spec (channels, notes, tempo) — **Lesson:**
-- [ ] `flp-validate` — integrity check: parseability, index bounds, missing samples — **Lesson:**
-- [ ] `flp-analyze` — structure report: arrangement, patterns used, mixer usage — **Lesson:**
-- [ ] `flp-batch` — apply an action (info/validate/tempo) across a directory — **Lesson:**
+- [x] `flp-generate` — build a project from a JSON spec (channels, notes, tempo)
+  **Lesson:** Byte-level writer moved out of tests into `offline/writer.py` (single source of truth — test fixtures now delegate to it). `write_flp_from_spec` maps friendly channel type strings → ChannelType ints, base64 plugin_data, auto iids (channels 0..n, patterns 1..n+1). Header `4sIh2H` = "FLhd" + version 6 + format 0 + channel_count 0 + ppq.
+- [x] `flp-validate` — integrity check: parseability, index bounds, missing samples
+  **Lesson:** Structural checks: duplicate iids, unnamed patterns, zero-length patterns, notes referencing missing rack channels. Corrupt files → ok:false + errors from `load_project`.
+- [x] `flp-analyze` — structure report: arrangement, patterns used, mixer usage
+  **Lesson:** Reports channel types histogram, total notes, MIDI range (min/max), per-pattern density. (Arrangement/mixer usage aren't parseable from these minimal files — report structure that exists.)
+- [x] `flp-batch` — apply an action (info/validate/tempo) across a directory
+  **Lesson:** Actions: info/validate/analyze/tempo/template. Per-file try/except → failures list (never aborts the batch). tempo requires bpm; template writes `<name>_template.flp`.
+
+**L3 STATUS: 15/15 DONE — 157 tests passing (was 121 baseline).**
 
 ---
 
