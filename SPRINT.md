@@ -36,7 +36,8 @@ No FL needed. Parse/write `.flp` files. All testable with pytest here.
 
 ## 1A. Project Analysis (6)
 
-- [ ] `flp-info` — read project metadata (tempo, key, time sig, title) from `.flp` — **Lesson:**
+- [x] `flp-info` — read project metadata (tempo, key, time sig, title) from `.flp`
+  **Lesson:** `.flp` stores NO key/time-sig (report what exists: title, tempo, PPQ, version, comments, artists, genre, URL, licensee, created_on, time_spent). pyflp 2.2.1 crashes on Python 3.13 (empty-enum `__call__`) — patched in `offline/_compat.py`. FLVersion event is ASCII; other TEXT events UTF-16-LE; Licensee is obfuscated in the file (factory mirrors it). Event framing: id<64→1B, 64–127→2B, 128–191→4B, ≥192→size byte+payload. `Project.version` is a `FLVersion` object, not str. Tool: `offline/flp.py:flp_info`, fixture builder: `tests/_flp_factory.py`.
 - [ ] `flp-channels` — list all channels (name, type, plugin) — **Lesson:**
 - [ ] `flp-patterns` — list all patterns (name, id, length) — **Lesson:**
 - [ ] `flp-notes` — extract all MIDI notes per pattern — **Lesson:**

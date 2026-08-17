@@ -15,6 +15,7 @@ import sys
 from mcp.server.fastmcp import FastMCP
 
 from .resources import project as r_project
+from .offline import register as offline_register
 from .tools import (
     arrangement,
     audio,
@@ -72,6 +73,7 @@ def build_app() -> FastMCP:
     generators.register(mcp)
     voice.register(mcp)
     audio.register(mcp)
+    offline_register(mcp)
 
     # resources
     r_project.register(mcp)

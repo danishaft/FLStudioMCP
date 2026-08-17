@@ -23,6 +23,7 @@ dependencies = [
     "mcp[cli]>=1.2.0,<2.0",
     "anyio>=4.0",
     "pydantic>=2.0",
+    "pyflp>=2.2.1",
 ]
 
 # Heavy, optional dependencies. The core MCP server (transport, mixer, channels,

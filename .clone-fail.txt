@@ -1,0 +1,4 @@
+remote: Write access to repository not granted.
+fatal: unable to access 'https://github.com/danishaft/opencode-sync.git/': The requested URL returned error: 403
+remote: Write access to repository not granted.
+fatal: unable to access 'https://github.com/danishaft/opencode-sync.git/': The requested URL returned error: 403
