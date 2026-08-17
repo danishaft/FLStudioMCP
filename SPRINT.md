@@ -201,3 +201,23 @@ Write in codespace; verify on Windows + FL. These cover the WALL items.
 - [ ] **Rollback layer** — snapshot-before-write + changelog + rollback command (GAP-ANALYSIS P0-1)
 - [ ] **Knowledgebase param ranges** — safe-range checks on set commands (GAP-ANALYSIS P0-2)
 - [ ] **`flmcp brief` / `flmcp audit`** — agent briefing + capability audit (GAP-ANALYSIS P0-3, P1-4)
+
+### Borrowed from 404kidwiz/fl-studio-mcp (all code-verified 2026-08-17)
+
+Patterns confirmed REAL in their repo (worth copying; will fold into L2 as needed):
+- [ ] **Window-relative click with DPI scaling** — their `automation/windows.py:click_at`: PowerShell FindWindow(`TFruityLoopsInstance`) → GetWindowRect → DPI scale (`DpiX/96`) → `mouse_event`. Our L2 equivalent on Linux: `xdotool getwindowgeometry` + scaled mouse move; keep the retry wrapper
+- [ ] **F8 plugin-load flow** — their `windows.py:load_plugin`: focus FL → SendKeys `{F8}` → type name (SendKeys-escaped) → ENTER. Same approach we planned for L2 `plugin-load`; theirs is proven reference code
+- [ ] **Flaky-GUI retry wrapper** — their `gui_automation.py:_with_retry`: 2 retries, 200 ms delay. Adopt for every L2 GUI tool
+- [ ] **`ui-reset-layout` / `ui-dismiss-popup`** — Ctrl+Shift+H and ENTER/ESC via SendKeys after AppActivate (theirs: `reset_ui`, `dismiss_popup`). We get the same from FL API + keystroke layer; keep ours
+- **Lesson:** their `fl_show_window`/`fl_browser_nav` go over MIDI SysEx; ours use the real FL Python API (`ui_show_window`) — no need to copy
+
+### Vision tools (from 404kidwiz — idea good, their implementation is a MOCK)
+
+VERIFIED: their `fl_vision_read_vst` only captures a screenshot with `mss`; the VLM analysis
+is a hardcoded string (`"mock_analysis": "Detected 3 oscillators, filter cutoff at 40%"`,
+code comment: "Here we mock the VLM processing"). Their `fl_vision_click_vst` is plain
+pyautogui clicks at given x/y — no element detection. So we do it properly or not at all:
+
+- [ ] **`vision-capture-vst`** — screenshot FL's plugin window to a PNG (mss on Windows, scrot/import on Linux); NO fake analysis
+- [ ] **Vision interpretation = the agent model itself** — in our architecture the calling model (Merlin) reads the captured PNG directly and returns element coordinates; no external VLM dependency, no mock
+- [ ] **`vision-click`** — click at returned coordinates reusing the window-relative + DPI-scaling click above
