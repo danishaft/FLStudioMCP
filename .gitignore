@@ -70,3 +70,6 @@ fLMCP_state.json
 
 # --- clihub-generated CLI binary -------------------------------------
 out/
+
+.clone-fail.txt
+.install-fail.txt
